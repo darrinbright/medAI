@@ -111,6 +111,42 @@ answer is "merely uncertain", drop it and reallocate the space to the CTMC.
 
 ---
 
+## How good must a *learned* gate be?
+
+Every gate figure above used an **oracle** that knows which intervals are unreliable, so those
+gains are ceilings. This replaces it with a classifier of a given AUC, under the only condition
+where the gate pays at all — mismatch making the comparator confidently wrong, 40% of intervals.
+
+Reproduce with `python run_gate_noisy.py`.
+
+| Gate AUC | Interval accuracy | Query accuracy | vs no gate | % of oracle |
+|---|---|---|---|---|
+| none | — | 0.695 | +0.000 | 0% |
+| 0.60 | 0.564 | 0.711 | +0.016 | 19% |
+| 0.70 | 0.648 | 0.716 | +0.021 | 25% |
+| 0.80 | 0.724 | 0.733 | +0.038 | 45% |
+| 0.90 | 0.816 | 0.739 | +0.044 | 52% |
+| 0.95 | 0.874 | 0.770 | +0.075 | 88% |
+| oracle | 1.000 | 0.780 | +0.085 | 100% |
+
+**A learned gate never hurts** — every row is positive, because a wrong reliability call only
+tempers evidence rather than inverting it. But the payoff is steeply non-linear: AUC 0.80 recovers
+under half the oracle gain, and it takes **AUC ≈ 0.95 to capture most of it**.
+
+Practical reading: below AUC 0.90 the gain (+0.02 to +0.04) is not worth a paper section. At 0.95
+it is.
+
+**And a high AUC is plausible here**, because part of the reliability signal is not predicted at
+all — it is *read*. `ViewPosition` (AP/PA/LATERAL) is a column in
+`mimic-cxr-2.0.0-metadata.csv.gz`, so the projection component of acquisition mismatch is known
+exactly, for free. Only rotation and inspiration depth need estimating from the image.
+
+That does **not** rescue the gate on its own. The November question stands unchanged: does
+mismatch make the comparator *confidently wrong*, or merely *uncertain*? A near-perfect detector
+of a condition that does not cause confident errors is still worth +0.000.
+
+---
+
 ## Calibration sensitivity
 
 Comparator accuracy fixed at 0.60, reported probabilities distorted by temperature:
@@ -271,6 +307,7 @@ defend, and the calibration curve is a figure in its own right.
 | Q recovered to ~10% on the control | Answers §3.7's identifiability risk. But present `Q_f` as a fitted prior, **not** as true biological rates — it is biased under misspecification |
 | Comparator accuracy requirement is low | Six-way accuracy is a smaller risk than believed; October pilot still needed for the real figure |
 | Gate worth 0.000 in the base case | **Do not claim it until the confidently-wrong condition is verified on real data** |
+| A learned gate needs AUC ≈ 0.95 to be worth reporting | Achievable in part: `ViewPosition` is free in the metadata, so projection mismatch is read rather than predicted |
 | Conditional independence violation confirmed | Report posterior calibration as standard. Apply likelihood tempering with `w` tuned on held-out data; expect roughly `w ≈ 0.55` |
 | Tempering costs no accuracy | §3.9 becomes a measured-and-mitigated limitation rather than an admitted flaw |
 | Calibration costs ~5 points | Worth a calibration pass, not worth a whole thread; downgrade proposal §6 |
@@ -281,8 +318,8 @@ defend, and the calibration curve is a figure in its own right.
 
 - ~~Data is generated from the same model family used for inference~~ — addressed above; the
   gain survives all four violated assumptions.
-- The gate is an **oracle** here — it knows which intervals are unreliable. A learned gate will be
-  worse, so the gains above are upper bounds.
+- ~~The gate is an oracle here~~ — addressed above; a learned gate needs AUC ≈ 0.95 to recover most
+  of the oracle gain.
 - ~~Conditional independence holds by construction in the simulator~~ — addressed above; the
   violation is simulated at its source, and the predicted overconfidence is confirmed.
 - Query definitions (onset, six shape classes) are ours, not MI-CXR's.

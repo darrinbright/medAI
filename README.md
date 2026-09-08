@@ -20,6 +20,7 @@ perception failure, and it is what this project attacks.
 
 | Document | Contents |
 |---|---|
+| [`docs/micxr-analysis.md`](docs/micxr-analysis.md) | **Benchmark analysis** — composition, parseability, what the questions actually ask |
 | [`docs/pilot-findings.md`](docs/pilot-findings.md) | **Synthetic pilot results** — global vs greedy, component ablation, what changes in the plan |
 | [`docs/review-response.md`](docs/review-response.md) | External review: what was accepted, what was rejected and why, what both missed |
 | [`docs/decision.md`](docs/decision.md) | **Chosen direction and why** — Idea 1 (TRACE), with the case against the other seven |
