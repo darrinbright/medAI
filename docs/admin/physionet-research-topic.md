@@ -57,6 +57,23 @@ PhysioNet Credentialed Health Data Use Agreement.
 
 ---
 
+## Short version (~90 words) — recommended
+
+I am researching longitudinal reasoning in chest radiography: modelling how findings evolve across
+a patient's full sequence of visits rather than against a single prior study, for a methods paper
+targeting MICCAI 2027.
+
+I will use MIMIC-CXR-JPG v2.1.0 (images and acquisition metadata to build multi-visit timelines),
+Chest ImaGenome v1.0.0 (improved/worsened/no-change relations between sequential exams as training
+supervision), MS-CXR-T v1.0.0 (expert progression labels for held-out evaluation), and
+MIMIC-Ext-CXR-QBA v1.0.0 (training and validation splits).
+
+Work is retrospective and computational. I will not attempt re-identification, link to external
+datasets, redistribute data, or share credentials, and will comply fully with the PhysioNet
+Credentialed Health Data Use Agreement.
+
+---
+
 ## Notes
 
 - **Not for a class**, so no course name or number is included. If any part of this is coursework,
