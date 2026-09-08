@@ -18,6 +18,7 @@ perception failure, and it is what this project attacks.
 
 | Document | Contents |
 |---|---|
+| [`docs/decision.md`](docs/decision.md) | **Chosen direction and why** — Idea 1 (TRACE), with the case against the other seven |
 | [`docs/ideas.md`](docs/ideas.md) | **Eight candidate paper ideas** with baselines, data, risk and a recommendation — start here |
 | [`docs/proposal.md`](docs/proposal.md) | Full research proposal: problem, method (6 stages), contributions, evaluation plan, timeline, risks |
 | [`docs/related-work.md`](docs/related-work.md) | Landscape and novelty audit establishing the open lane; alternatives considered and why they were set aside |
