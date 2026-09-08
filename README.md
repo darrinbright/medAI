@@ -18,6 +18,7 @@ perception failure, and it is what this project attacks.
 
 | Document | Contents |
 |---|---|
+| [`docs/ideas.md`](docs/ideas.md) | **Three candidate paper ideas** with baselines, data, risk and a recommendation — start here |
 | [`docs/proposal.md`](docs/proposal.md) | Full research proposal: problem, method (6 stages), contributions, evaluation plan, timeline, risks |
 | [`docs/related-work.md`](docs/related-work.md) | Landscape and novelty audit establishing the open lane; alternatives considered and why they were set aside |
 | [`docs/data.md`](docs/data.md) | PhysioNet datasets required, what each supplies, disk strategy, sequencing |
