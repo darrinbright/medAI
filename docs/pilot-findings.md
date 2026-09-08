@@ -129,13 +129,76 @@ only argmax), so its flat column doubles as a Monte-Carlo error bar: variation t
 
 ---
 
+## Misspecification study — the CTMC gain is real
+
+The pilot above generated data from the same CTMC family used for inference, so the +0.236 could
+have been the simulator agreeing with itself. This test removes that possibility: ground truth
+comes from processes that each break a **different** CTMC assumption, `Q` is then fitted by MLE to
+that non-CTMC data (which is exactly what estimating `Q_f` from Chest ImaGenome would be), and
+inference runs with the resulting — wrong — prior.
+
+Reproduce with `python run_misspec.py`. 6,000 timelines to fit, 4,000 held out to evaluate.
+
+| Generative process | Assumption violated | Greedy | Uniform prior | Fitted Q | **CTMC gain** |
+|---|---|---|---|---|---|
+| ctmc | none (control) | 0.555 | 0.564 | 0.793 | **+0.230** |
+| semi_markov | memorylessness | 0.549 | 0.581 | 0.781 | **+0.201** |
+| momentum | first-order Markov | 0.541 | 0.585 | 0.803 | **+0.218** |
+| nonstationary | time-homogeneity | 0.547 | 0.593 | 0.788 | **+0.196** |
+| mixture | patient homogeneity | 0.545 | 0.562 | 0.789 | **+0.228** |
+
+**The gain survives every violation.** Worst case is time-homogeneity (+0.196 vs +0.230 control) —
+it loses about 15% of the benefit, not the benefit itself. The CTMC works as a useful regulariser
+even when it is demonstrably the wrong family.
+
+Global-vs-greedy is equally robust, and slightly *larger* under misspecification:
+
+| Process | Full vs greedy | Greedy consistency |
+|---|---|---|
+| ctmc | +0.239 | 0.136 |
+| semi_markov | +0.232 | 0.116 |
+| momentum | **+0.262** | 0.136 |
+| nonstationary | +0.242 | 0.136 |
+| mixture | +0.244 | 0.123 |
+
+### Q is identifiable — a direct answer to proposal §3.7
+
+Fitted birth–death rates (1/day), from discretely observed transitions at irregular intervals:
+
+| | q01 | q12 | q23 | q10 | q21 | q32 |
+|---|---|---|---|---|---|---|
+| **true (control)** | 0.0060 | 0.0050 | 0.0030 | 0.0040 | 0.0060 | 0.0070 |
+| recovered (ctmc) | 0.0058 | 0.0051 | 0.0029 | 0.0036 | 0.0061 | 0.0065 |
+| semi_markov | 0.0101 | 0.0072 | 0.0046 | 0.0057 | 0.0090 | 0.0121 |
+| momentum | 0.0062 | 0.0093 | 0.0063 | 0.0059 | 0.0082 | 0.0059 |
+| nonstationary | 0.0100 | 0.0084 | 0.0052 | 0.0038 | 0.0053 | 0.0053 |
+| mixture | 0.0065 | 0.0061 | 0.0040 | 0.0048 | 0.0077 | 0.0094 |
+
+On the control, all six rates are recovered to within ~10% — so **the six-parameter generator is
+estimable from panel data with irregular intervals**, which was flagged as an open risk.
+
+Under misspecification the rates are biased in interpretable ways: `semi_markov` inflates every
+rate (increasing hazard produces more transitions than an exponential dwell would, so the fitted
+exponential rate compensates upward). **This matters for the paper's claims**: `Q_f` should be
+presented as a *fitted prior that helps*, not as an estimate of true biological transition rates.
+The interpretability claim in proposal §3.7 needs that qualification.
+
+### Scope
+
+Only the **dynamics** are misspecified here. The comparator model, emission model and the
+conditional-independence assumption remain correct by construction, so this does not address
+proposal §3.9. It answers one question — is the CTMC gain an artifact? — and the answer is no.
+
+---
+
 ## What this changes in the plan
 
 | Finding | Action |
 |---|---|
 | Global ≫ greedy at all accuracies | Thesis holds. Keep §10's contingency but deprioritise it |
 | Greedy consistency 6–27% | Promote Trajectory Consistency Rate — the headroom is much larger than assumed |
-| CTMC is the largest component | Make Δτ-conditioning the lead technical contribution, ahead of the gate |
+| CTMC is the largest component, and survives misspecification | Make Δτ-conditioning the lead technical contribution, ahead of the gate |
+| Q recovered to ~10% on the control | Answers §3.7's identifiability risk. But present `Q_f` as a fitted prior, **not** as true biological rates — it is biased under misspecification |
 | Comparator accuracy requirement is low | Six-way accuracy is a smaller risk than believed; October pilot still needed for the real figure |
 | Gate worth 0.000 in the base case | **Do not claim it until the confidently-wrong condition is verified on real data** |
 | Calibration costs ~5 points | Worth a calibration pass, not worth a whole thread; downgrade proposal §6 |
@@ -144,9 +207,8 @@ only argmax), so its flat column doubles as a Monte-Carlo error bar: variation t
 
 ## Honest limits
 
-- Data is generated from the same model family used for inference, so the CTMC is favoured by
-  construction. A misspecification study (generate from a non-Markov or semi-Markov process,
-  infer with the CTMC) is the obvious next experiment.
+- ~~Data is generated from the same model family used for inference~~ — addressed above; the
+  gain survives all four violated assumptions.
 - The gate is an **oracle** here — it knows which intervals are unreliable. A learned gate will be
   worse, so the gains above are upper bounds.
 - Conditional independence (proposal §3.9) holds by construction in the simulator but will not
