@@ -20,6 +20,7 @@ perception failure, and it is what this project attacks.
 |---|---|
 | [`docs/proposal.md`](docs/proposal.md) | Full research proposal: problem, method (6 stages), contributions, evaluation plan, timeline, risks |
 | [`docs/related-work.md`](docs/related-work.md) | Landscape and novelty audit establishing the open lane; alternatives considered and why they were set aside |
+| [`docs/data.md`](docs/data.md) | PhysioNet datasets required, what each supplies, disk strategy, sequencing |
 
 ## Constraints
 
@@ -32,7 +33,9 @@ perception failure, and it is what this project attacks.
 1. **Start PhysioNet credentialing today.** CITI "Data or Specimens Only Research" course is
    ~4–6 hours; approval typically 3–14 days. Everything downstream blocks on this.
    - Register: https://physionet.org/register/
-   - Then request access to MIMIC-CXR-JPG, Chest ImaGenome, MS-CXR-T
+   - Sign DUAs for MIMIC-CXR-JPG v2.1.0, Chest ImaGenome v1.0.0, MIMIC-Ext-CXR-QBA v1.0.0 and
+     MS-CXR-T v1.0.0 in one sitting — see [`docs/data.md`](docs/data.md). Do **not** mirror the
+     full 558 GB archive; build a manifest and resize on ingest.
 2. **Clone the MI-CXR test set** (public, images resolved locally from MIMIC):
    https://github.com/AIDASLab/MI-CXR
 3. **Build the synthetic simulation harness** (data-independent, see proposal §8). Implement the
