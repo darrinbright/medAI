@@ -230,3 +230,232 @@ A practical note: Ideas 1 and 3 share machinery. Both are latent-state trajector
 confounder explained away using a recorded covariate — acquisition parameters in one case, time
 since radiotherapy in the other. If Idea 1 works, Idea 3 becomes substantially cheaper as a
 follow-up paper.
+
+---
+---
+
+# Second batch — Ideas 4 to 8
+
+Same bar as above. Two of these (4 and 6) came out of a tool discovery: **SAM / UAE / SAME++**
+(Alibaba DAMO, public code) already solve registration-free dense anatomical correspondence,
+reporting **91% accuracy on whole-body follow-up lesion matching**. That kills "registration-free
+correspondence" as a standalone contribution — but it hands you correspondence as a *solved
+component*, which makes lesion-level longitudinal work possible without training a 3D whole-body
+model.
+
+---
+
+# Idea 4 — New-lesion discovery in whole-body CT, revived at lesion scale
+
+**This is your original Idea 2, made feasible.** I set it aside on compute grounds; that judgement
+was wrong in one specific way, and it is worth correcting.
+
+**What I got wrong.** I assumed new-lesion discovery required training a 3D whole-body segmentor —
+which is genuinely out of reach on 12 GB. But the open problem is not segmentation. It is the
+**decision**: given a candidate region in the follow-up scan, is this a genuinely new lesion, or a
+registration artefact, an anatomical change, a treatment effect, or a lesion that was always there
+and simply unlabelled? That decision operates on **64³ crops**, which is trivial on 12 GB.
+
+So the pipeline becomes: existing detectors propose candidates → SAM/UAE supplies correspondence →
+**your contribution is the novelty-decision layer**. The remaining constraint is download size
+(hundreds of GB), not the GPU.
+
+**Why the problem is open.** autoPET IV supplies lesion prompts for follow-up lesions, so fully
+automatic new-lesion discovery is *unevaluated*. The reported gap is **~0.33 Dice fully automatic
+vs 0.61–0.74 prompted**. Rocholl et al. (MICCAI-LMID 2026) diagnosed why cascades fail and called
+explicitly for integrated temporal models.
+
+**Method.** A correspondence-uncertainty-aware novelty decision. SAM/UAE gives a match plus a
+matching confidence; propagate that confidence into the novelty call so "new" cannot be asserted
+where correspondence is unreliable. Model the four confounders explicitly rather than hoping the
+network learns them: registration/correspondence failure, anatomical change, treatment effect,
+and prior-scan miss. Output calibrated per-lesion new-lesion probability with a
+decision-theoretic operating point, since a false new metastasis changes therapy.
+
+**Data.** Longitudinal-CT (Tübingen, 300 patients, 600 studies, 7,182 lesions with correspondence
+labels covering persistence / regression / merging / new appearance — public via FDAT), autoPET,
+DeepLesion.
+
+**Baselines.** LesionLocator (CVPR 2025, public code), autoPET IV entries, ULS23 cascade, the
+0.33 automatic / 0.61–0.74 prompted gap.
+
+**Risk.** Medium. Download volume is the real friction, and DKFZ is active here. But you would be
+first to report new-lesion-specific discovery on this dataset, which is a defensible claim.
+
+---
+
+# Idea 5 — Calibrated change: learning the null distribution of "no change"
+
+**Problem.** Every clinical change threshold is a fixed constant: RECIST 20% diameter, RANO 25%,
+"new lesion" for MS. Those constants came from small reproducibility studies. Meanwhile deep
+learning hands clinicians a volume with **no error bar at all**, so "the tumour grew 18%" is
+reported with no way to know whether 18% exceeds this scan pair's measurement noise.
+
+**Insight.** Change detection is a **hypothesis test**, not a subtraction. H₀ is "no change", and
+its null distribution is *learnable* — because test-retest imaging exists, where true change is
+known to be zero:
+
+| Source | Null-change structure |
+|---|---|
+| **RIDER Lung CT** (TCIA, open) | same patient, two CT scans, **same scanner, same parameters, 15 minutes apart** |
+| Multi-parameter test-retest lung CT (2024) | same patient reconstructed at varying parameters |
+| MIMIC-CXR same-day repeats | same day, different acquisition |
+| MSSEG-2 / same-session MRI rescans | zero true new lesions |
+
+**Method.** Learn an **acquisition-conditioned null distribution** of apparent change — conditioned
+on slice thickness, kernel, dose, contrast phase, positioning — then convert any existing change
+detector's output into a calibrated p-value or posterior. The deliverable is a wrapper: it makes
+*any* longitudinal model report statistically valid change, and it yields the first data-driven
+replacements for RECIST-style constants.
+
+**Baselines.** Fixed RECIST/RANO thresholds, ensemble variance, raw change detectors, published
+repeatability coefficients.
+
+**Novelty, honestly.** The *statistical* idea has precedent — classical neuroimaging has done
+test-retest null modelling for cortical thickness and diffusion MRI, and there is an MS
+"statistical detection of change" method on subtraction images. What does not exist is a **learned,
+acquisition-conditioned null integrated with deep change detectors and validated across tasks**.
+Frame the paper as that, not as inventing hypothesis testing.
+
+**Why it is interesting.** It plugs into Ideas 1, 2, 3 and 4 — a general capability rather than a
+single-benchmark result. Multi-dataset generality reads well at MICCAI.
+
+**Risk.** Medium. RIDER is small (32 patients). The framing must be careful to avoid "this is just
+a t-test" — lead with the learned conditional null and the cross-task evaluation.
+
+---
+
+# Idea 6 — Backward label propagation: learning to detect what was missed
+
+**This is the most interesting idea in the batch, and the one I would most want to read.**
+
+**The observation.** In longitudinal imaging, the truth at time *t* is often only knowable at time
+*t+1*. Radiology has known this for decades through retrospective visibility review: when a cancer
+is diagnosed, going back to the prior "negative" screen frequently shows it was **already visible
+and simply not reported**.
+
+The MSSeg2 expert analysis (*Sci Rep* 2026) is the same phenomenon measured precisely: **39 lesions
+that no expert annotated** were found by automated methods and then **confirmed real** on
+three-rater review.
+
+**The method.** Turn that into supervision. A finding confirmed at visit *t+1* is propagated
+**backwards** to visit *t*, where it was unlabelled. Those become positives for a "what was already
+there" detector — free labels for exactly the subtle, early, easily-missed presentations that
+matter most clinically and that forward-labelled training never sees.
+
+Concretely: retrospective confirmation → backward propagation through correspondence (SAM/UAE
+handles this) → a curriculum from obvious-late to subtle-early presentations → positive-unlabeled
+risk estimation, because the earlier timepoint's negatives are unlabeled rather than negative.
+
+**Why it matters.** The clinical framing is unusually strong: *teaching a model to catch findings
+a year earlier by learning from what was demonstrably there but unreported.* Lead-time gain is a
+result radiologists and reviewers both immediately understand.
+
+**Data.** Longitudinal-CT (correspondence labels make backward propagation exact), MSSEG-2 (where
+the phenomenon is already documented and quantified), NLST if you take on the download (interval
+cancers with prior negative screens are precisely this structure).
+
+**Baselines.** Standard detectors trained on forward labels only; the ~44% expert miss rate as a
+human reference point; per-timepoint detection performance with and without backward supervision.
+
+**Novelty, honestly.** Retrospective visibility studies are a long radiology tradition, and label
+propagation exists in other guises. What is not done is using retrospective confirmation
+**systematically as training supervision for earlier detection**, with the PU treatment that the
+label structure demands.
+
+**Risk.** Medium. The key threat is circularity — you must not evaluate on backward-propagated
+labels you trained on. Hold out patients entirely, and evaluate lead time on prospectively
+confirmed cases only. Get that protocol right in the first week or the paper is unsalvageable.
+
+---
+
+# Idea 7 — Radiologist hedging as free uncertainty supervision
+
+**Problem.** Medical imaging models are badly calibrated, and calibration research is stuck because
+there is no ground-truth uncertainty to calibrate *against* — only hard labels.
+
+**Insight.** There is, and it is sitting in every radiology report. Radiologists hedge constantly
+and gradationally: "possible", "cannot exclude", "questionable", "may represent", "consistent
+with", "definite". That is **expert-annotated uncertainty at MIMIC scale, for free**, and it is
+ordinal.
+
+Better still, longitudinal structure gives you the *validation* nobody else has: a hedged finding
+at visit *t* is often resolved at visit *t+1*. So you can ask whether hedging strength actually
+predicts confirmation — and calibrate to it.
+
+**Method.** Extract an ordinal hedging scale from reports; train the model to match the hedging
+distribution rather than a hard label; validate calibration against longitudinal confirmation
+rates. The claim to test: *a model calibrated to radiologist hedging is better calibrated against
+outcomes than one calibrated by temperature scaling on hard labels.*
+
+**Data.** MIMIC-CXR reports, Chest ImaGenome, MS-CXR-T. Same access as Idea 1, so the two share
+setup cost.
+
+**Baselines.** Temperature scaling, deep ensembles, evidential deep learning, MC dropout,
+CheXpert/NegBio uncertain-label (−1) handling.
+
+**Novelty, honestly.** CheXpert and MIMIC labelers already emit an "uncertain" class, and people
+have used it. What is new is treating hedging as an **ordinal calibration target** and validating
+it against **longitudinal confirmation**. Do not oversell it as the first use of report
+uncertainty.
+
+**Risk.** Medium. Hinges on hedging language being consistent enough across radiologists to
+calibrate against — test this early on a small sample before committing.
+
+---
+
+# Idea 8 — Failure detection for segmentation, without the ensemble
+
+**Problem.** Segmentation models fail silently in deployment. Nobody ships a per-case reliability
+estimate, so a clinician cannot tell a good mask from a broken one.
+
+**Benchmark.** DKFZ's `segmentation_failures_benchmark` (MedIA 2024) — five public 3D collections,
+public code, realistic test-time distribution shift, risk-coverage evaluation. The established
+baseline is the **pairwise Dice score between ensemble predictions**, which the benchmark found
+consistently strongest.
+
+**The opening.** That baseline needs a full ensemble — N× training and N× inference. A **single-pass
+method that matches ensemble-level failure detection** wins on both performance and cost, and cost
+is exactly what blocks clinical deployment.
+
+**Baselines.** Pairwise-Dice ensemble (the one to match or beat), MC dropout, max softmax, entropy
+aggregation, direct Dice regression, SegQC.
+
+**Risk.** Low technical risk, moderate novelty risk. Everything is public and the evaluation is
+pre-specified, so you will get a clean number. But it is DKFZ's benchmark and DKFZ's baseline, and
+it is the least distinctive idea in this document — it is the safe one, not the interesting one.
+
+---
+
+# Full comparison — all eight
+
+| # | Idea | Number to beat | PhysioNet? | Download | Novelty | Risk |
+|---|---|---|---|---|---|---|
+| 1 | TRACE, multi-visit CXR | 41.8% acc | **Yes** | ~15 GB | High | Low–med |
+| 2 | MS new lesions, incomplete GT | F1 75.80 | No | tens of GB | High | Low |
+| 3 | Pseudoprogression | AUC 75.3% | No | tens of GB | High | **High** (n=20 test) |
+| 4 | WB-CT new lesions, crop-scale | 0.33→0.61 Dice gap | No | **100s of GB** | Med–high | Medium |
+| 5 | Calibrated change | RECIST constants | No | small | Med (precedent) | Medium |
+| 6 | Backward label propagation | forward-label detectors | No | tens of GB | **High** | Medium |
+| 7 | Hedging as calibration | temp. scaling, ensembles | **Yes** | shares Idea 1 | Med–high | Medium |
+| 8 | Failure detection | ensemble pairwise Dice | No | tens of GB | **Low** | Low |
+
+## Revised recommendation
+
+**Idea 1 still first.** Largest headroom, strongest statistical power, lightest compute, cleanest
+result. Nothing in this batch displaces it.
+
+**Idea 6 is the one I would add.** It is the most *interesting* idea here — teaching a model to
+detect findings earlier by learning from what was provably there but unlabelled — and it composes
+with Ideas 2 and 4 rather than competing with them. Its risk is protocol design, not feasibility,
+which is the kind of risk you can eliminate in week one.
+
+**Idea 5 is the highest-leverage if it works,** because it is a wrapper that upgrades every other
+idea on this list. But it has the most prior art to navigate.
+
+**Idea 8 only as a fallback** if you need a guaranteed publishable number rather than an
+interesting paper.
+
+Two pairings worth noting: **1 + 7** share all their data setup, so the second is cheap once the
+first is running. **2 + 6** share the positive-unlabeled machinery and the incomplete-ground-truth
+framing, and could plausibly be one stronger paper rather than two thinner ones.
