@@ -143,6 +143,13 @@ A per-image severity head supplies `P(y_t | s_t)`.
 **Calibration is not optional here.** The method consumes `P(relation)`, not `argmax relation`:
 `{new .51, stable .49}` and `{new .99, stable .01}` must behave differently. See §6.
 
+**Finding-specific polarity.** The six relations are defined over *severity of the abnormality*,
+but report language often describes a measured quantity: "lung volumes have decreased" is a
+*worsening*. Chest ImaGenome labels are report-derived, so training targets must be converted to
+abnormality-severity polarity for volume/aeration-type findings, or the comparator learns the
+inverted direction for that class. Implemented and tested for the option parser
+(`sim/gts_parse.py`); see [`micxr-analysis.md`](micxr-analysis.md).
+
 ### 3.6 Acquisition-aware reliability gating (`ρ`)
 
 Apparent change on CXR is confounded by projection (AP vs PA), rotation, inspiration depth and

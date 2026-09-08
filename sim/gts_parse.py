@@ -38,7 +38,18 @@ _MARKERS = [
 ]
 
 # ---------------------------------------------------------------- relation lexicon
+#
+# Entries carry a TAG, not a relation, because two kinds of verb behave differently:
+#
+#   EVALUATIVE  "improves", "worsens", "resolves"  - refer to the ABNORMALITY, so their
+#               direction is fixed no matter which finding is being described.
+#   MAGNITUDE   "increases", "decreases", "diminishes", "declines" - refer to a measured
+#               QUANTITY, so their direction depends on which way is abnormal for that
+#               finding. More effusion is worse; more lung volume is better.
+#
 # Ordered most-specific first; the first match at a position wins.
+
+MAG_UP, MAG_DOWN = -101, -102        # resolved against finding polarity, see resolve_tag
 
 _LEX: list[tuple[re.Pattern, int]] = [
     # improvement that merely looks like resolution
@@ -65,13 +76,47 @@ _LEX: list[tuple[re.Pattern, int]] = [
     (re.compile(r"\bnewly\s+appear\w*|\bnew\s+\w+\s+appear\w*", re.I), NEW),
     (re.compile(r"\bre-?appear\w*|\bdevelop\w*|\bemerg\w*", re.I), NEW),
     (re.compile(r"\bappear\w*", re.I), NEW),
-    # worsening
-    (re.compile(r"\bworsen\w*|\bprogress\w*|\benlarg\w*", re.I), WORSENED),
-    (re.compile(r"\bincreas\w*|\bgrows?\b|\bexpand\w*", re.I), WORSENED),
-    # improvement
-    (re.compile(r"\bimprov\w*|\bdecreas\w*|\bregress\w*|\bdiminish\w*|\breduc\w*|\blessen\w*", re.I), IMPROVED),
-    (re.compile(r"\bsmaller\b|\bless\s+pronounced", re.I), IMPROVED),
+    (re.compile(r"\bnormali[sz]\w*", re.I), RESOLVED),
+    # evaluative - direction fixed regardless of finding
+    (re.compile(r"\bworsen\w*|\bprogress\w*|\bdeteriorat\w*", re.I), WORSENED),
+    (re.compile(r"\bimprov\w*|\bregress\w*", re.I), IMPROVED),
+    # magnitude - direction depends on finding polarity
+    (re.compile(r"\benlarg\w*|\bincreas\w*|\bgrows?\b|\bexpand\w*|\brises?\b|\blarger\b", re.I), MAG_UP),
+    (re.compile(r"\bdecreas\w*|\bdiminish\w*|\bdeclin\w*|\breduc\w*|\blessen\w*", re.I), MAG_DOWN),
+    (re.compile(r"\bsmaller\b|\bless\s+pronounced", re.I), MAG_DOWN),
 ]
+
+# ---------------------------------------------------------------- finding polarity
+#
+# Terms naming a measured QUANTITY where more is normal. For these, a magnitude verb
+# inverts: "lung volume decreases from adequate to severely low aeration" is WORSENING.
+_INVERTED = re.compile(
+    r"\blung volumes?\b|\baeration\b|\bexpansion\b|\binflation\b|\binspiration\b", re.I)
+
+# Terms naming the ABNORMALITY itself, which keep normal polarity even though several
+# contain a quantity word. "lower lobe volume loss diminishes" is IMPROVEMENT, and
+# "hyperinflation increases" is WORSENING. Checked first.
+_NOT_INVERTED = re.compile(
+    r"\bvolume loss\b|\bhyper-?expan\w*|\bhyper-?inflat\w*|\bhypo-?inflat\w*"
+    r"|\bhypo-?ventilat\w*|\bcollapse\b|\batelecta\w*", re.I)
+
+
+def finding_polarity(text: str | None) -> int:
+    """+1 if more of the named quantity means worse (the usual case), -1 if inverted."""
+    if not text:
+        return 1
+    if _NOT_INVERTED.search(text):
+        return 1
+    return -1 if _INVERTED.search(text) else 1
+
+
+def resolve_tag(tag: int, polarity: int) -> int:
+    """Turn a lexicon tag into a relation, applying polarity to magnitude verbs only."""
+    if tag == MAG_UP:
+        return WORSENED if polarity > 0 else IMPROVED
+    if tag == MAG_DOWN:
+        return IMPROVED if polarity > 0 else WORSENED
+    return tag
 
 NONE_OPTION = re.compile(r"^\s*(none of|there (?:is|are) no)\b", re.I)
 
@@ -129,8 +174,17 @@ def split_clauses(text: str) -> list[tuple[int, str]]:
     return [(o, c) for o, c in out if c.strip()]
 
 
-def option_relations(text: str, *, first_wins: bool = True,
-                     split_multi: bool = False) -> dict[int, int]:
+def _clause_polarity(clause: str, default: int) -> int:
+    """Polarity from terms in this clause; the option-level default if it names none."""
+    if _NOT_INVERTED.search(clause):
+        return 1
+    if _INVERTED.search(clause):
+        return -1
+    return default
+
+
+def option_relations(text: str, *, first_wins: bool = True, split_multi: bool = False,
+                     finding: str | None = None) -> dict[int, int]:
     """Per-interval relation for one option: {interval index -> relation}.
 
     Clause-scoped rather than nearest-marker. Attaching a relation to whichever marker is
@@ -151,7 +205,12 @@ def option_relations(text: str, *, first_wins: bool = True,
     giving both intervals of a clause the same relation turns out to distinguish the minimal
     pairs more reliably than splitting them badly. Kept as a switch so the sweep is
     reproducible (see docs/micxr-analysis.md).
+
+    Polarity is resolved PER CLAUSE, falling back to `finding` (from the question stem).
+    One option can switch subject mid-sentence - "lung volumes are normal; ... lower lobe
+    volume loss diminishes" - where the first clause is inverted and the second is not.
     """
+    default_pol = finding_polarity(finding)
     out: dict[int, int] = {}
     current: list[int] = []
     for _, clause in split_clauses(text):
@@ -161,7 +220,8 @@ def option_relations(text: str, *, first_wins: bool = True,
                 continue
             rels = find_relations(clause)
             if rels:
-                pick = rels[0][1] if first_wins else rels[-1][1]
+                pol = _clause_polarity(clause, default_pol)
+                pick = resolve_tag(rels[0][1] if first_wins else rels[-1][1], pol)
                 for i in current:
                     out.setdefault(i, pick)
             continue
@@ -179,7 +239,8 @@ def option_relations(text: str, *, first_wins: bool = True,
             rels = find_relations(clause[lo:hi])
             current = sorted(idxs)
             if rels:
-                pick = rels[0][1] if first_wins else rels[-1][1]
+                pol = _clause_polarity(clause[lo:hi], default_pol)
+                pick = resolve_tag(rels[0][1] if first_wins else rels[-1][1], pol)
                 for i in idxs:
                     out.setdefault(i, pick)
     return out
@@ -194,12 +255,22 @@ def relations_to_mask(rel_by_interval: dict[int, int]) -> np.ndarray:
     return keep
 
 
+_QUESTION_FINDING = re.compile(r"temporal changes of (.+?) across", re.I)
+
+
+def question_finding(item: dict) -> str | None:
+    """The finding named in a single-entity GTS question stem."""
+    m = _QUESTION_FINDING.search(item.get("question", ""))
+    return m.group(1).strip() if m else None
+
+
 def parse_gts_item(item: dict, **kw) -> dict:
     """Parse a GTS item whose options all describe the SAME finding.
 
     The "none of them are true" option is the complement of the union of the others,
     which makes the five options exhaustive by construction.
     """
+    kw.setdefault("finding", question_finding(item))
     masks, rels, unparsed = {}, {}, []
     none_key = None
     for key, text in item["choices"].items():
@@ -267,6 +338,13 @@ def parse_multi_entity_item(item: dict) -> dict:
             none_key = key
             continue
         finding = extract_finding(text)
+        # Polarity is deliberately NOT seeded from the option's extracted finding here.
+        # A cross-finding option can switch subject mid-sentence - "...opacified with
+        # decreased aeration from T1 to T2; the lungs show increasing bilateral opacities" -
+        # and an option-level default leaks the inverted polarity of "aeration" into the
+        # clauses about opacities. Clause-local terms only. Single-entity GTS is different:
+        # its question stem names one finding that governs every clause, including pronoun
+        # continuations ("they become moderately low"), so there the default is seeded.
         rels = option_relations(text)
         if finding is None or not rels:
             unparsed.append((key, text, finding, bool(rels)))

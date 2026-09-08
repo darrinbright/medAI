@@ -90,6 +90,47 @@ def test_query_labels_exhaustive():
     return "queries: TEL/GTS label maps exhaustive and correct on spot checks"
 
 
+def test_finding_polarity():
+    """Magnitude verbs invert for quantity-named findings; evaluative verbs never do.
+
+    Exclusivity cannot catch a polarity error - flipping two options consistently keeps them
+    distinct - so these are hand-labelled cases drawn from the real corpus.
+    """
+    from .core import IMPROVED, WORSENED
+    from .gts_parse import option_relations
+
+    cases = [
+        # (text, interval, expected relation, why)
+        ("Between T1 and T2, lung volume decreases from adequate to severely low aeration.",
+         1, WORSENED, "magnitude down on an inverted finding"),
+        ("Between T1 and T2, lung volumes increase.",
+         1, IMPROVED, "magnitude up on an inverted finding"),
+        ("Between T2 and T3, expansion of both lungs has decreased.",
+         2, WORSENED, "inverted finding, expansion"),
+        ("Between T1 and T2, low lung volume improves to adequate aeration.",
+         1, IMPROVED, "evaluative verb ignores polarity"),
+        ("Between T1 and T2, low lung volume worsens to near-complete collapse.",
+         1, WORSENED, "evaluative verb ignores polarity"),
+        ("Between T1 and T2, lower lobe volume loss diminishes.",
+         1, IMPROVED, "names the abnormality, so NOT inverted"),
+        ("Between T1 and T2, hyperinflation increases.",
+         1, WORSENED, "names the abnormality, so NOT inverted"),
+        ("Between T1 and T2, there is a moderate right pleural effusion that is decreasing.",
+         1, IMPROVED, "ordinary finding, normal polarity"),
+        ("Between T1 and T2, the pleural effusion increases.",
+         1, WORSENED, "ordinary finding, normal polarity"),
+    ]
+    for text, ivl, want, why in cases:
+        got = option_relations(text).get(ivl)
+        assert got == want, f"{why}: {text!r} -> {got}, wanted {want}"
+
+    # subject switches mid-option: clause polarity must not leak across clauses
+    mixed = ("Between T1 and T2, lung volumes are normal; from T2 to T3, "
+             "lower lobe volume loss diminishes.")
+    assert option_relations(mixed).get(2) == IMPROVED, option_relations(mixed)
+    return f"polarity: {len(cases) + 1} hand-labelled cases, incl. mid-option subject switch"
+
+
 def main():
     tests = [
         test_partition_exact,
@@ -99,6 +140,7 @@ def main():
         test_trajectory_space,
         test_query_labels_exhaustive,
         test_enumeration_matches_forward_backward,
+        test_finding_polarity,
     ]
     print("running correctness checks\n" + "-" * 66)
     for t in tests:

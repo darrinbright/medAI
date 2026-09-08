@@ -228,16 +228,53 @@ rather than a named entity:
 No closed lexicon covers that. **An LLM parser is genuinely required here**, and this is precisely
 where proposal §3.10's error budget applies.
 
-### A polarity trap the parser surfaced
+### A polarity trap the parser surfaced — now fixed
 
-For most findings, "increase" means worse. For **lung volume and aeration it is inverted**:
+For most findings "increase" means worse. For **lung volume and aeration it is inverted**, because
+the six relations are defined over *severity of the abnormality*, not over the measured quantity.
 
-> C: "lung volume **decreases** from adequate to severely low aeration" → parsed IMPROVED, is WORSE
-> D: "low lung volume **improves** to adequate aeration" → parsed IMPROVED, correct
+The fix is a linguistic distinction rather than a per-finding patch. Verbs split into two classes:
 
-The six relations are defined over *severity of the abnormality*, so the comparator and the parser
-both need **finding-specific polarity** for volume/aeration-type findings. Easy to fix once known,
-silently wrong if not.
+| Class | Examples | Behaviour |
+|---|---|---|
+| **Evaluative** | improves, worsens, resolves, progresses, deteriorates | refer to the **abnormality**; direction fixed for every finding |
+| **Magnitude** | increases, decreases, enlarges, diminishes, declines | refer to a measured **quantity**; direction depends on the finding's polarity |
+
+A finding is *inverted* when its term names a quantity where more is normal — `lung volume`,
+`aeration`, `expansion`, `inflation`, `inspiration`. So:
+
+```
+"lung volume decreases from adequate to severely low aeration"  -> WORSENED   (magnitude + inverted)
+"lung volumes increase"                                         -> IMPROVED   (magnitude + inverted)
+"low lung volume worsens to near-complete collapse"             -> WORSENED   (evaluative, polarity irrelevant)
+"the pleural effusion increases"                                -> WORSENED   (magnitude + normal)
+```
+
+**A trap inside the trap:** several terms contain a quantity word but name the *abnormality*, and
+these keep normal polarity — `volume loss`, `hyperinflation`, `hyperexpansion`, `hypoventilation`,
+`atelectasis`, `collapse`. `"lower lobe volume loss diminishes"` is an **improvement**, and a naive
+substring match on "volume" gets it backwards. These are checked first.
+
+**Polarity is resolved per clause, not per option.** Seeding it from the option as a whole caused a
+regression: in `"…opacified with decreased aeration from T1 to T2; the lungs show increasing
+bilateral opacities…"`, the word *aeration* in the first clause leaked inverted polarity into later
+clauses about opacities and flipped them. Single-entity GTS is the exception — its question stem
+names one finding that governs every clause, including pronoun continuations (*"they become
+moderately low"*), so there the default is seeded from the stem.
+
+**Impact:** 235 options (2.6%) touch an inverted finding; **76 options (0.83%) had at least one
+relation corrected**. Small in aggregate, but concentrated in one finding class, where it would
+otherwise have been 100% wrong and looked like a comparator failure.
+
+Exclusivity cannot validate this — flipping two options consistently keeps them distinct — so the
+fix is covered by **10 hand-labelled cases in `sim/tests.py`**, including the mid-option subject
+switch. Corpus metrics held or improved (single-entity exclusivity 86.6% → 87.0%, multi-entity
+items 24.6% → 25.4%).
+
+**This applies to the comparator too, not just the parser.** Chest ImaGenome comparison labels are
+report-derived, and reports say "lung volumes have decreased". Training targets must be converted
+to abnormality-severity polarity before use, or the comparator will learn the inverted direction
+for this finding class.
 
 ### Net: the parser error budget covers ~28% of the benchmark, not all of it
 
