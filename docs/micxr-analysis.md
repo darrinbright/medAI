@@ -164,6 +164,95 @@ path.
 
 ---
 
+## The GTS and ICR path — how far rules go, and where they stop
+
+`run_gts_parse_eval.py`. Both GTS types and ICR use free-text options, but they are **not**
+arbitrary prose: the four non-"none" options of an item are a **minimal-pair set**, near-identical
+text with the relation words swapped at a few slots. Diffing options across 600 items recovers the
+entire relation vocabulary, and it is small and regular — `worsens / increases / enlarges /
+progresses`, `improves / decreases / regresses / diminishes`, `remains stable / persists /
+unchanged`, `resolves / completely resolves`, `newly appears / develops`, `remains absent`.
+
+So the parser stays rule-based: locate interval markers, locate relation phrases, scope each
+relation to the clause its marker owns, and convert per-interval relations into a mask over the
+1024 ordinal trajectories.
+
+### single-entity GTS — all options describe the same finding, so exclusivity applies
+
+| Metric | Result |
+|---|---|
+| Options parsed | 3,867 / 4,000 (**96.7%**) |
+| Items with all four parsed | 935 / 1,000 (**93.5%**) |
+| …of those, mutually exclusive | 810 / 935 (**86.6%**) |
+| End-to-end clean | **~81%** of the 1,000 items |
+
+Two heuristics were chosen by sweep rather than intuition, and one of them was counter-intuitive:
+
+| first relation wins | split two-marker clauses | Exclusive |
+|---|---|---|
+| ✅ | ❌ | **86.6%** |
+| ❌ | ❌ | 84.3% |
+| ✅ | ✅ | 68.1% |
+| ❌ | ✅ | 66.6% |
+
+*First* relation wins because the options are minimal pairs and the discriminative verb leads —
+"partially improves **but persists**", "develops **and progresses**" — with the rest as
+elaboration. And splitting a two-marker clause at the midpoint between markers **hurts by 18
+points**: it cuts phrases apart, and giving both intervals of a clause the same relation
+distinguishes minimal pairs more reliably than splitting them badly.
+
+An earlier version assigned each relation to its nearest marker by character distance. That scored
+61.9%, because in `"Between T1 and T2, X progressively worsens; ... from T2 to T3 ..."` the verb
+sits nearer the *second* marker and its interval gets stolen. Clause scoping fixed it.
+
+### cross-finding types — this is where rules stop
+
+`multi_entity_interval_summary` and `icr_multi_abn` put a **different finding in each option**, so
+exclusivity does not apply (the options are not competing descriptions of one chain) and answering
+needs one posterior *per finding*.
+
+| qtype | Items | Options with (finding + relations) | Items with all four |
+|---|---|---|---|
+| multi_entity_interval_summary | 1,000 | 74.8% | **24.6%** |
+| icr_multi_abn | 317 | 63.0% | **21.1%** |
+
+Expanding the finding lexicon from 35 to 55 terms moved options from 61.8% → 74.8% and 53.2% →
+63.0%, then hit diminishing returns. The residue is not missing lexicon entries — it is
+**compositional clinical language**, where the finding is an anatomical structure plus a descriptor
+rather than a named entity:
+
+> "linear density along the lateral aspect of the right lung"
+> "progressive bony structural changes with new cortical irregularities"
+> "the hilar contours are normal but become mildly prominent"
+
+No closed lexicon covers that. **An LLM parser is genuinely required here**, and this is precisely
+where proposal §3.10's error budget applies.
+
+### A polarity trap the parser surfaced
+
+For most findings, "increase" means worse. For **lung volume and aeration it is inverted**:
+
+> C: "lung volume **decreases** from adequate to severely low aeration" → parsed IMPROVED, is WORSE
+> D: "low lung volume **improves** to adequate aeration" → parsed IMPROVED, correct
+
+The six relations are defined over *severity of the abnormality*, so the comparator and the parser
+both need **finding-specific polarity** for volume/aeration-type findings. Easy to fix once known,
+silently wrong if not.
+
+### Net: the parser error budget covers ~28% of the benchmark, not all of it
+
+| Path | Items | Share | Parser |
+|---|---|---|---|
+| TEL | 2,994 | 56.4% | regex, 100% exclusive — **no error budget** |
+| single-entity GTS (clean) | ~810 | 15.3% | rules, 86.6% exclusive |
+| multi-entity GTS + ICR | 1,317 | 24.8% | **LLM required** |
+| single-entity GTS (residue) | ~190 | 3.6% | LLM or manual |
+
+**~72% of the benchmark is answerable with deterministic parsing.** That is the number to quote
+when a reviewer asks whether an LLM is solving the task.
+
+---
+
 ## What this changes in the plan
 
 | Finding | Action |
@@ -174,4 +263,6 @@ path.
 | Majority baseline is 22.8% | Quote it alongside the 20% random rate; VLMs beat it by only 6.5 points |
 | 20% of TEL answers are "never happens" | Absence calibration becomes a first-class requirement and a results row |
 | 7 findings cover ~98% | Finding-conditioned single comparator; per-finding CTMC rates are practical |
-| multi-entity GTS compares across findings | Separate work item: per-finding posteriors plus a prose parser |
+| multi-entity GTS compares across findings | Per-finding posteriors plus an **LLM** parser; rules reach only 24.6% of items |
+| ~72% of the benchmark parses deterministically | Quote this when asked whether an LLM is solving the task; the §3.10 error budget covers the other 28% |
+| Lung volume / aeration have inverted polarity | Comparator and parser both need finding-specific polarity, or these are silently wrong |
