@@ -191,6 +191,76 @@ proposal §3.9. It answers one question — is the CTMC gain an artifact? — an
 
 ---
 
+## Conditional independence study — confirmed, measured, and cheap to fix
+
+Proposal §3.9 predicted that treating `y_t`, `z_{t-1,t}` and `z_{t,t+1}` as conditionally
+independent given `s_t` would make the posterior **overconfident**, since all three read the same
+image. That prediction is now tested at its real source.
+
+Each image carries a latent nuisance factor — rotation, inspiration depth, AP magnification, an
+overlying line — that shifts its *apparent* severity. The per-image read sees the apparent
+severity, and so does the comparator on **both** intervals touching that image. One bad film
+therefore produces three correlated errors: an inflated read at V3, a spurious "worsened" on
+V2→V3, and a spurious "improved" on V3→V4. Ground truth stays the true state sequence.
+
+Reproduce with `python run_depend.py`.
+
+### The cost, unmitigated
+
+| Shared nuisance | Greedy | Full | Gain | TEL ECE | Overconfidence |
+|---|---|---|---|---|---|
+| 0.00 | 0.556 | 0.803 | +0.247 | 0.028 | −0.026 |
+| 0.10 | 0.510 | 0.744 | +0.234 | 0.020 | +0.019 |
+| 0.20 | 0.479 | 0.699 | +0.220 | 0.043 | +0.042 |
+| 0.35 | 0.440 | 0.654 | +0.214 | 0.075 | **+0.075** |
+| 0.50 | 0.398 | 0.594 | +0.196 | 0.126 | **+0.126** |
+
+**The prediction holds exactly.** Overconfidence is slightly *negative* when the assumption is
+satisfied (−0.026) and grows monotonically with correlation, reaching +0.126 — the posterior
+claims 12.6 percentage points more confidence than it earns. ECE rises 4.5× over the same range.
+
+Accuracy also falls, from 0.803 to 0.594. That is the more expensive consequence, and it is worth
+being blunt about: correlated image nuisance is costly whether or not you model it.
+
+**The thesis survives.** Full still beats greedy by +0.196 even under severe violation, because
+greedy is hurt too (0.556 → 0.398). The ordering never flips.
+
+### The fix: one shared tempering exponent
+
+Weight `w` applied to all image-derived evidence (unary and pairwise), with the CTMC prior left at
+full weight. At shared nuisance 0.35:
+
+| Weight w | Accuracy | TEL ECE | Overconfidence |
+|---|---|---|---|
+| 1.00 | 0.648 | 0.087 | +0.085 |
+| 0.85 | 0.656 | 0.050 | +0.050 |
+| 0.70 | 0.652 | 0.029 | +0.023 |
+| **0.55** | **0.658** | **0.016** | **−0.015** |
+| 0.40 | 0.654 | 0.079 | −0.079 |
+
+**A single scalar cuts ECE by roughly 5× at no accuracy cost.** Accuracy is flat across the whole
+range (0.648–0.658, within Monte-Carlo noise), which is exactly what tempering should do: it
+rescales all evidence uniformly, so the argmax barely moves and only the sharpness changes. Push
+too far (w = 0.40) and it overshoots into underconfidence.
+
+So §3.9 moves from "a known weakness we will name openly" to **"a known weakness, measured, with a
+one-parameter mitigation and a tuned operating point."** That is a much stronger position to
+defend, and the calibration curve is a figure in its own right.
+
+### Honest limits
+
+- The nuisance model is ours. Real correlation structure between a radiograph's reads may be
+  stronger, weaker, or differently shaped.
+- `w` must be tuned on held-out real data, not transplanted from this study.
+- Tempering treats the symptom. A learned joint emission over `(y_t, z_{t-1,t}, z_{t,t+1})` would
+  address the cause, at the cost of a much larger parameter count and the loss of the clean
+  factorisation — worth a sentence in the paper, not a reimplementation.
+- Comparison across the two tables shows the Monte-Carlo error bar: the same cell (nuisance 0.35,
+  w = 1.0) reads 0.654/0.075 in one and 0.648/0.087 in the other, so treat differences below about
+  0.01 accuracy and 0.012 ECE as noise.
+
+---
+
 ## What this changes in the plan
 
 | Finding | Action |
@@ -201,6 +271,8 @@ proposal §3.9. It answers one question — is the CTMC gain an artifact? — an
 | Q recovered to ~10% on the control | Answers §3.7's identifiability risk. But present `Q_f` as a fitted prior, **not** as true biological rates — it is biased under misspecification |
 | Comparator accuracy requirement is low | Six-way accuracy is a smaller risk than believed; October pilot still needed for the real figure |
 | Gate worth 0.000 in the base case | **Do not claim it until the confidently-wrong condition is verified on real data** |
+| Conditional independence violation confirmed | Report posterior calibration as standard. Apply likelihood tempering with `w` tuned on held-out data; expect roughly `w ≈ 0.55` |
+| Tempering costs no accuracy | §3.9 becomes a measured-and-mitigated limitation rather than an admitted flaw |
 | Calibration costs ~5 points | Worth a calibration pass, not worth a whole thread; downgrade proposal §6 |
 
 ---
@@ -211,6 +283,6 @@ proposal §3.9. It answers one question — is the CTMC gain an artifact? — an
   gain survives all four violated assumptions.
 - The gate is an **oracle** here — it knows which intervals are unreliable. A learned gate will be
   worse, so the gains above are upper bounds.
-- Conditional independence (proposal §3.9) holds by construction in the simulator but will not
-  hold on real data, where the same image drives unary and both adjacent pairwise terms.
+- ~~Conditional independence holds by construction in the simulator~~ — addressed above; the
+  violation is simulated at its source, and the predicted overconfidence is confirmed.
 - Query definitions (onset, six shape classes) are ours, not MI-CXR's.
