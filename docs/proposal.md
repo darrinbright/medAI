@@ -1,340 +1,409 @@
-# TRACE: Trajectory Reasoning by Aggregating Calibrated Evidence
+# Local-to-global trajectory inference for multi-visit chest radiography
 
-**Multi-visit disease trajectory inference from longitudinal chest radiographs**
+> **Working shorthand: `L2G`. This is a placeholder, not a proposed name.**
+> The name *TRACE* is taken — [TRACE: Temporal Radiology with Anatomical Change
+> Explanation](https://arxiv.org/abs/2602.02963) (Feb 2026) is a chest-X-ray temporal model.
+> Choose the final acronym only once the method is frozen.
 
 Target venue: MICCAI 2027 (~Feb 2027 deadline)
 Compute envelope: single RTX 5070 Ti (12 GB VRAM), 64 GB RAM
+
+*Revised after external review. See [`review-response.md`](review-response.md) for what changed and why.*
 
 ---
 
 ## 1. The problem
 
-Radiologists read a chest radiograph in the context of the patient's whole imaging history. A
-lung opacity that is *absent → new → larger → stable → improved* across five visits tells a
-different clinical story than the same opacity seen once. Current systems do not reason this
-way: they either analyse each image independently or compare the current image against a
-single prior.
+Radiologists read a chest radiograph against the patient's whole imaging history. Current systems
+do not: they analyse each image independently or compare the current image against a single prior.
 
-The MI-CXR benchmark (ACL Findings 2026) quantified how badly this fails. Across 5,311
-five-way multiple-choice items built on five-visit MIMIC-CXR timelines, **14 state-of-the-art
-VLMs averaged 29.3% accuracy against a 20% random baseline**. The best models — InternVL3.5-38B
-(41.8%) and GPT-5.2 (41.1%) — barely doubled chance.
+The MI-CXR benchmark (ACL Findings 2026) quantifies the resulting failure. Across 5,311 five-way
+multiple-choice items over five-visit MIMIC-CXR timelines, **14 VLMs average 29.3% against a 20%
+random baseline**; the best, InternVL3.5-38B, reaches 41.8%.
 
-### 1.1 The diagnostic that defines this project
+### 1.1 The diagnostic experiment
 
-MI-CXR's stage-wise probing contains the key result. When a model is **told which interval to
-examine** ("compare Visit 2 and Visit 3"), accuracy jumps to:
+MI-CXR's stage-wise probing is what makes this a tractable research problem. When the relevant
+interval is explicitly specified, **10 of the 14 evaluated models reach 60.1–76.5%** — GPT-5.2 at
+76.5%, Gemini 3 Pro 74.3%, Lingshu-32B and MedGemma-27B at 70.5%, down to Claude Sonnet 4.5 at
+60.1%. The remaining four sit at 59%, 58.5%, 44.8% and 28.4%.
 
-| Model family | Interval given |
-|---|---|
-| Closed-source | 60.1 – 76.5% |
-| Medical VLMs | 58.5 – 70.5% |
-| Open-source | 28.4 – 66.7% |
+Same images, same findings, same perception. Only the composition burden was removed.
 
-The benchmark authors summarise it as: models "produce locally plausible interval descriptions
-but fail to enforce temporal constraints or compose evidence into globally consistent decisions
-over the full timeline."
+### 1.2 The defensible reading of that result
 
-**This is not a perception failure. It is an evidence-selection and global-composition failure.**
-The gap between 29% (unaided) and 76% (interval handed over) is the headroom this paper targets.
+> **The MI-CXR results indicate that longitudinal failure is not explained by visual perception
+> alone; a major additional bottleneck is selecting and composing interval-level evidence into a
+> globally consistent trajectory.**
 
-### 1.2 Why this is an open lane
+This is deliberately weaker than "29% is not a vision failure." MI-CXR's own experiments still show
+interval-level errors and genuine ambiguity, so perception is not irrelevant — it is insufficient
+to explain the gap. The benchmark authors attribute the failure to temporal decision-making,
+evidence selection, ordering, and global composition.
 
-The longitudinal CXR literature is saturated at the **bi-temporal** level — one prior, one
-current:
+### 1.3 Position relative to existing work
 
-- BioViL-T (CVPR 2023) — temporal multi-image encoder
-- CoCa-CXR (2025) — contrastive captioners, current SOTA on MS-CXR-T at 65.0%
-- ProTrans (2026) — directional semantic transitions between bi-temporal states
-- GRCD (2026) — grounded region change detection over CXR *pairs*
-- CheXGround (2026) — anatomical region tokens for grounded longitudinal interpretation
-- Transition-Aware best-of-N (2026) — training-free reranking on (prior, current) transitions
+Published longitudinal CXR **methods** operate on image *pairs*: BioViL-T, CoCa-CXR, ProTrans,
+GRCD, CheXGround, TRACE (2602.02963), Transition-Aware best-of-N. Multi-visit resources that do
+exist — MI-CXR, LoMeVQA, CheXTemporal, LUNGUAGE — are **benchmarks and datasets**, and LUNGUAGE's
+sequential component structures *report text* (80 reports, 10 patients) rather than performing
+image-based trajectory inference.
 
-Every one of these operates on **two** images. Multi-visit (T ≥ 3) global trajectory inference
-has **no method paper**. MI-CXR defined the task and demonstrated universal failure; nobody has
-yet built a method for it.
-
-Benchmarks are also proliferating (MI-CXR, TemMed-Bench, CheXTemporal, LoMeVQA, MC-CXR) — which
-is a *good* sign for a method paper: the evaluation infrastructure is built and the baselines
-are published and weak.
+We therefore do **not** claim "the first multi-visit method." We claim a specific combination that
+we have not found in prior work, stated in §7.
 
 ---
 
-## 2. Core claim
+## 2. Core hypothesis
 
-> VLMs are competent **local comparators** and incompetent **global integrators**. If we use the
-> VLM only for local pairwise perception and perform exact probabilistic inference for the
-> global trajectory, most of the 29 → 76 gap closes — using a model small enough to train on one
-> consumer GPU.
+> Relocating composition out of the VLM and into explicit probabilistic inference over its local
+> evidence converts strong local perception into reliable global longitudinal reasoning.
 
-The method never asks a VLM the hard global question. It asks only well-posed local questions
-that VLMs demonstrably answer well, then fuses those answers under an explicit temporal model.
+The VLM is never asked the global question. It is used as a **local relation sensor**.
 
 ---
 
 ## 3. Method
 
-### 3.1 Notation
+### 3.1 Latent representation
 
-- Timeline of images `x_1 … x_T` (T = 5) with acquisition times `τ_1 < … < τ_T` and DICOM
-  metadata `m_t`
-- Findings `f ∈ F` (pleural effusion, pneumothorax, consolidation, edema, atelectasis,
-  cardiomegaly, lung opacity, …)
-- **Latent ordinal state** `s_t^f ∈ S = {0: absent, 1: mild, 2: moderate, 3: severe}`
+Per finding `f`, the patient's course is a hidden ordinal sequence
 
-The patient's course for finding `f` is the latent chain `s_1^f … s_T^f`. Everything else is
-noisy observation of that chain.
+```
+s_t ∈ S = {0 absent, 1 mild, 2 moderate, 3 severe},   t = 1 … T   (T = 5)
+```
 
-### 3.2 A clean change-relation algebra
+### 3.2 The relation partition — an interface, not a discovery
 
-The six clinical change relations **exactly partition** `S × S`:
+The six clinical change relations exactly partition `S × S`:
 
-| Relation | Constraint on (s_t, s_t') |
+| Relation | Transitions | Cells |
+|---|---|---|
+| absent-both | 0→0 | 1 |
+| new | 0→1, 0→2, 0→3 | 3 |
+| resolved | 1→0, 2→0, 3→0 | 3 |
+| stable | 1→1, 2→2, 3→3 | 3 |
+| worsened | 1→2, 1→3, 2→3 | 3 |
+| improved | 2→1, 3→1, 3→2 | 3 |
+| | | **16 / 16** |
+
+The partition is trivially verifiable and is **not itself the contribution** — a reviewer would
+rightly say "you defined six labels that partition sixteen cells." The contribution is what it
+enables:
+
+> The clinically meaningful change vocabulary can be represented exactly as a partition of the
+> latent transition space, letting VLM relation probabilities be injected directly as pairwise
+> potentials **without an additional heuristic mapping layer**.
+
+Similar five-class vocabularies are already established in longitudinal CXR work (CheXTemporal uses
+new/worse/stable/improved/resolved), which supports the clinical grounding rather than undermining
+it.
+
+### 3.3 Full factorisation
+
+The model uses **both** per-image and pairwise evidence. Writing `y_t` for the per-image
+observation at visit `t` and `z_t` for the comparator output on interval `(t, t+1)`:
+
+```
+P(s_1:T | y_1:T , z_1:T-1)  ∝  P(s_1) · ∏_t P(y_t | s_t) · ∏_t ψ_t(s_t, s_t+1)
+
+ψ_t(s, s′)  ∝  P_cmp( r(s,s′) )^ρ_t  ×  P_CTMC( s′ | s, Δτ_t )
+```
+
+So a five-visit timeline contributes **5 unary + 4 pairwise = 9 observations** constraining 5 latent
+states. Both terms are load-bearing; the ablation in §8 isolates each.
+
+### 3.4 Emission model with explicit missingness
+
+**A finding not mentioned in a report is not evidence of absence.** Radiology reports are
+incomplete observations, and collapsing "not mentioned" into "absent" would systematically corrupt
+both training labels and inference.
+
+The observation `y_t` therefore takes three outcomes:
+
+```
+y_t ∈ { observed-present(severity), observed-absent, NOT-OBSERVED }
+```
+
+Missingness is modelled as **informative** (MNAR): a per-state reporting rate `μ(s)` with
+`μ(0) ≠ μ(3)`, since a severe finding is far more likely to be mentioned than a mild one. This
+makes "not observed" weak evidence *toward* absence without ever treating it as proof — which is
+both clinically correct and, we expect, a measurable accuracy gain over the naive collapse.
+
+### 3.5 Local comparator (perception)
+
+`P_cmp(relation | x_t, x_t′, f)` — a Siamese encoder with difference-aware fusion, conditioned on a
+learned finding embedding via FiLM so one model covers all findings. Backbone: ResNet-50 or ViT-B
+from CXR-pretrained weights at 512×512.
+
+A per-image severity head supplies `P(y_t | s_t)`.
+
+**Calibration is not optional here.** The method consumes `P(relation)`, not `argmax relation`:
+`{new .51, stable .49}` and `{new .99, stable .01}` must behave differently. See §6.
+
+### 3.6 Acquisition-aware reliability gating (`ρ`)
+
+Apparent change on CXR is confounded by projection (AP vs PA), rotation, inspiration depth and
+exposure. `ρ_t ∈ (0,1]` acts as an inverse temperature: `ρ → 0` flattens the comparator's evidence
+toward uninformative, so inference falls back on the prior and the per-image reads rather than
+propagating an acquisition artefact into the trajectory.
+
+**Supervision — weak, not gold.** MIMIC-CXR contains many same-day repeat studies. These are
+**weak null-change supervision**, *not* ground truth: pneumothorax, flash pulmonary edema, effusion
+after drainage, atelectasis and tube repositioning all genuinely change within hours. The
+high-confidence subset is therefore:
+
+```
+same-day pair  AND  report states no interval change  AND  finding is not acutely labile
+                                    ↓
+                    high-confidence null-change subset
+```
+
+with manual validation on a sample before the subset is used, and acquisition metadata
+(`ViewPosition`, inspiration proxy, rotation estimate, exposure statistics) as auxiliary input.
+
+### 3.7 Continuous-time transition prior
+
+Inter-visit intervals in MIMIC span hours to years, and existing multi-visit work discards them.
+Model each finding as a continuous-time Markov chain with generator `Q_f`, restricted to ordinal
+birth–death structure (`0↔1↔2↔3`), giving six free rates `q01 q10 q12 q21 q23 q32`:
+
+```
+P(s_t+1 | s_t, Δτ) = [ exp(Q_f · Δτ) ]
+```
+
+**Open question, stated as such.** Chest ImaGenome provides scene-graph attributes and comparison
+relations extracted from reports; it does **not** hand over a clean four-level ordinal severity
+scale per finding. MS-CXR-T's labels are coarser still (improving / stable / worsening). So the
+plan is not "estimate `Q_f` from Chest ImaGenome" but:
+
+> Investigate estimating the CTMC rates from available longitudinal severity annotations, and
+> assess identifiability and calibration per finding — falling back to a three-state or binary
+> latent scale where the four-state scale proves unidentifiable.
+
+This is a genuine risk and is scheduled early (§9).
+
+### 3.8 Inference
+
+The graph is a chain over 4 states and 5 steps, so `4^5 = 1024` trajectories can be enumerated
+outright; forward–backward gives marginals and Viterbi the MAP path.
+
+**Stated precisely:** this is **exact inference in the specified finite-state model**. It is not
+exact inference about the patient — the factorisation can be exact and the model still
+misspecified. Every consistency claim below is likewise *consistency with the defined latent-state
+trajectory model*, not a clinical guarantee.
+
+### 3.9 A known modelling weakness: conditional independence
+
+`y_t`, `z_{t-1,t}` and `z_{t,t+1}` all depend on the same image `x_t`. Treating them as
+conditionally independent given `s_t` is false — shared visual features drive all three — and will
+make the posterior **overconfident**.
+
+We will (a) quantify the effect via posterior calibration on held-out timelines, (b) test a shared
+down-weighting exponent on overlapping evidence, and (c) report it openly rather than let a
+reviewer find it. Naming this ourselves is cheaper than being caught by it.
+
+### 3.10 Answer decoding
+
+Each question type is a query on one posterior:
+
+- **TEL** — `argmax_t P(s_{t-1}=0, s_t>0)`
+- **ICR** — posterior over the relation on `(i, j)`
+- **GTS** — likelihood of each candidate trajectory shape
+
+MCQ options are mapped to trajectory predicates offline by a small LLM parser. **This parser is a
+dependency and an attack surface** ("you used an LLM to solve part of the task"); we will report
+parser accuracy against manual annotation on a sample and treat parser error as part of the error
+budget. The same applies to grounding a question to the finding whose chain should be run.
+
+### 3.11 Adaptive interval querying
+
+Rather than running all `T(T-1)/2` comparisons, select pairs greedily by expected information gain
+about the target question `Q`:
+
+```
+IG(V_i, V_j ; Q)  =  H(Q | E)  −  E_z [ H(Q | E, z_ij) ]
+```
+
+```
+current posterior → which pair most reduces uncertainty about Q?
+                  → query the VLM on that pair → update → repeat under budget B
+```
+
+This yields an **accuracy vs. number of VLM calls** curve. It is currently the least developed
+component and is scheduled last; it is a bonus contribution, not a load-bearing one.
+
+---
+
+## 4. Data
+
+| Dataset | Role |
 |---|---|
-| absent-both | `s_t = 0, s_t' = 0` |
-| new | `s_t = 0, s_t' > 0` |
-| resolved | `s_t > 0, s_t' = 0` |
-| worsened | `s_t' > s_t ≥ 1` |
-| stable | `s_t' = s_t ≥ 1` |
-| improved | `1 ≤ s_t' < s_t` |
+| MIMIC-CXR-JPG v2.1.0 | images; `ViewPosition`, `StudyDate`, `StudyTime` for timelines, Δτ and acquisition covariates |
+| Chest ImaGenome v1.0.0 | localized comparison relations across sequential exams; candidate source for severity/CTMC estimation (§3.7) |
+| MIMIC-Ext-CXR-QBA v1.0.0 | training/validation splits (public MI-CXR release is test-only) |
+| MS-CXR-T v1.0.0 | expert progression labels, held-out evaluation |
+| MI-CXR (GitHub) | primary benchmark, 5,311 test items |
 
-This is the hinge of the whole method: a local comparator that predicts a distribution over
-these six relations is *directly* a pairwise potential over the latent state chain. No ad-hoc
-translation layer.
-
-### 3.3 Stage 1 — Local pairwise comparator (perception)
-
-`p_θ(c_{t,t'}^f | x_t, x_t')` — a Siamese encoder with a difference-aware fusion head,
-conditioned on a learned finding embedding via FiLM so a single model covers all findings.
-
-- Backbone: ResNet-50 or ViT-B initialised from CXR-pretrained weights (BioViL-T / CoCa-CXR
-  style), 512×512 input
-- Fits comfortably in 12 GB with AMP + gradient checkpointing
-- Training labels: Chest ImaGenome comparison relations, MS-CXR-T progression labels
-  (1,326 expert-labelled pairs, 5 findings), and GRCD's publicly released cleaned 40,250-pair
-  benchmark
-
-A per-image **absolute severity head** `p(s_t^f | x_t)` supplies unary potentials.
-
-### 3.4 Stage 2 — Acquisition-aware reliability gating  ★ novel
-
-Apparent change on CXR is heavily confounded by projection (AP vs PA), rotation, inspiration
-depth, exposure and support devices. Radiologists hedge on exactly this ("apparent increase may
-reflect differences in technique"). No existing longitudinal method models it explicitly.
-
-Learn a per-pair reliability scalar `ρ_{t,t'} = g_φ(x_t, x_t', m_t, m_t', Δτ) ∈ (0,1]` used as
-an inverse temperature:
-
-```
-p̃(c) ∝ p_θ(c)^ρ
-```
-
-`ρ → 0` flattens the evidence to uninformative; `ρ → 1` trusts it fully. This is input-dependent
-calibration (conditional temperature scaling), so it is principled and citable.
-
-**Free supervision — the null-change trick.** MIMIC-CXR contains many *same-study and same-day
-repeat* radiographs: pairs where true disease change is ≈ zero but acquisition change is not.
-These are free negatives. Ground truth for such pairs is constrained to {stable, absent-both} —
-any predicted *new / worsened / improved / resolved* is a false alarm attributable to
-acquisition. Train `g_φ` to lower `ρ` precisely where the comparator errs on these pairs.
-
-Acquisition features: ViewPosition, PatientOrientation, lung-field area ratio (inspiration
-proxy), rotation estimate, support-device presence, exposure statistics, `Δτ`.
-
-### 3.5 Stage 3 — Time-conditioned transition prior (CTMC)  ★ novel
-
-MIMIC intervals are wildly irregular — hours to years. A one-day interval and a ninety-day
-interval have completely different transition dynamics, yet no multi-visit method conditions on
-the actual gap.
-
-Model each finding's dynamics as a **continuous-time Markov chain** on the ordinal state space
-with learned generator `Q_f`:
-
-```
-P(s_{t+1} | s_t, Δτ_t, f) = [exp(Q_f · Δτ_t)]_{s_t, s_{t+1}}
-```
-
-This handles irregular sampling natively and yields an interpretable per-disease dynamics
-parameter (e.g. pneumothorax resolves faster than fibrosis). Estimate `Q_f` by MLE on
-Chest ImaGenome-derived progression sequences.
-
-### 3.6 Stage 4 — Exact global inference
-
-The graph is a chain, so **forward–backward gives exact marginals and Viterbi gives the exact
-MAP trajectory** — no approximation, negligible cost.
-
-- Unary potentials: absolute severity head
-- Pairwise potentials: gated comparator output × CTMC prior
-
-*Extension (ablation):* findings co-occur (effusion / atelectasis / consolidation). A low-rank
-coupling across findings with mean-field or loopy BP is a natural extension; the chain version
-is the safe core.
-
-### 3.7 Stage 5 — Answer decoding by posterior query
-
-Every MI-CXR task family becomes a **query on one posterior trajectory**:
-
-- **TEL** ("when did X first appear?") → `argmax_t P(s_{t-1}=0, s_t>0)`
-- **ICR** ("what changed between visit i and j?") → posterior over `c_{i,j}` from marginals
-- **GTS** ("overall course?") → likelihood of each candidate trajectory shape
-
-For MCQ, score all five options by their likelihood under the posterior. Options are mapped to
-trajectory predicates once, offline, by a small LLM parser — cheap and auditable.
-
-**Consequence:** TEL, ICR and GTS answers are **cross-task consistent by construction**, because
-they are read-outs of the same posterior. This is precisely the property MI-CXR shows current
-models lack.
-
-### 3.8 Stage 6 — Adaptive interval querying  ★ novel
-
-Rather than running all `T(T-1)/2 = 10` comparisons, greedily select pairs by expected
-information gain about the answer predicate, under a budget B. This directly answers the
-"which visits are relevant?" difficulty and produces an accuracy-vs-compute curve — a
-test-time-compute contribution, and an efficiency argument that lands well at MICCAI.
+See [`data.md`](data.md) for access and disk strategy.
 
 ---
 
-## 4. Contributions (as they will be listed in the paper)
+## 5. Pilot experiment — before committing to the main dataset
 
-1. **First method for multi-visit (T ≥ 3) trajectory reasoning on chest radiographs**, framed as
-   latent ordinal state estimation rather than direct visual question answering.
-2. **Acquisition-aware reliability gating** trained with free null-change supervision mined from
-   same-day repeat radiographs — an explicit model of the apparent-vs-real change confound.
-3. **Continuous-time transition priors** that condition on the true inter-visit interval,
-   handling irregular longitudinal sampling.
-4. **Exact global inference** yielding guaranteed temporal consistency and cross-task coherence.
-5. **Adaptive interval selection** for test-time compute allocation.
-6. **Two new evaluation metrics**: Trajectory Consistency Rate and Cross-task Coherence.
+The single quantity the whole project depends on is **local comparator accuracy and calibration on
+six-way relations**, which nobody has published. CoCa-CXR's 65.0% on MS-CXR-T is a **three-class**
+paired-image progression result and is *not* evidence that six-way will reach 65%.
+
+Run as a formal pilot:
+
+1. **Synthetic study (no data access needed).** Sweep achievable trajectory accuracy as a function
+   of comparator accuracy and calibration. Establishes the required operating point in advance.
+2. **Six-way comparator pilot** on a small MS-CXR-T / Chest ImaGenome slice, once credentialed.
+
+If the pilot says the required comparator accuracy is unreachable, that is a finding worth knowing
+in October rather than January.
 
 ---
 
-## 5. Evaluation plan
+## 6. Comparator calibration — its own experimental thread
 
-### 5.1 Primary benchmark — MI-CXR
+The pairwise potential uses `P_cmp(r)^ρ`. That is a valid *score* regardless, but calling it a
+probability-derived likelihood requires evidence. Where scores come from a VLM's token
+probabilities, they are not automatically calibrated clinical probabilities.
 
-5,311 test items, reported overall and split by TEL / ICR / GTS.
+Planned: raw scores vs. temperature scaling vs. isotonic regression vs. per-finding calibration,
+each evaluated by reliability diagrams and ECE, and each propagated through to final trajectory
+accuracy. Expect this to be one of the paper's more informative tables.
 
-**Published baselines (free, already in the paper):** 14 VLMs, range 18.1 – 41.8%.
-**Baselines we run ourselves:** 2–3 open VLMs runnable locally in 4-bit (Qwen2.5-VL-7B,
-InternVL-8B) under zero-shot, chain-of-thought, self-consistency, and a strong
-"describe-all-pairs-then-answer" prompting condition.
-**Ceiling:** the oracle-interval condition (60–76%).
+---
 
-**Target: 29.3% → 55–65% overall.** Even the low end is a ~14-point absolute gain over the best
-published model.
+## 7. Claimed contribution
 
-### 5.2 Secondary benchmarks (generality)
+> A multi-visit CXR inference framework that converts local VLM change probabilities into explicit
+> pairwise potentials over a latent ordinal disease trajectory and performs exact, interval-aware
+> probabilistic inference in that model, with all downstream temporal questions derived from a
+> single posterior.
 
-- **MS-CXR-T** progression classification — validates the local comparator in isolation against
-  BioViL-T and CoCa-CXR (SOTA 65.0%)
-- **TemMed-Bench**, **CheXTemporal** — cross-benchmark generality
+Stated as a combination, since no individual ingredient is new:
 
-### 5.3 New metrics
+```
+VLM local relation probabilities
+        + ordinal latent disease states
+        + relation-space factorisation
+        + acquisition reliability gating
+        + continuous-time transition prior
+        + exact multi-visit inference
+        + multiple downstream question read-outs
+```
 
-- **Trajectory Consistency Rate (TCR)** — fraction of predictions corresponding to a logically
-  realisable trajectory. TRACE is 100% by construction; baselines will not be, and quantifying
-  that is itself a result.
-- **Cross-task Coherence** — agreement between TEL and ICR answers about the same
-  finding/timeline.
+We have not found this combination in prior CXR work. The related-work section will state that as a
+searched claim about a *combination*, never as "nobody has done multi-visit CXR."
 
-### 5.4 Ablations
+### Contributions as they will be listed
 
-| Ablation | Tests |
+1. **A local-to-global formulation for longitudinal CXR reasoning** that uses VLMs as
+   interval-level change comparators and delegates trajectory composition to structured
+   probabilistic inference.
+2. **A clinically grounded transition representation** in which the six change relations form an
+   exact partition of the four-state ordinal transition space, enabling direct conversion of
+   comparator outputs into pairwise potentials.
+3. **Acquisition-aware evidence weighting** that down-weights unreliable comparisons arising from
+   projection, positioning and image-quality differences.
+4. **A continuous-time transition prior** accounting for irregular inter-visit intervals.
+5. **Exact finite-state inference** producing a single trajectory posterior from which TEL, ICR and
+   GTS answers are derived, giving architectural cross-task consistency.
+6. **A systematic evaluation of local-to-global reasoning** — comparator calibration, trajectory
+   consistency, and compute/accuracy trade-offs.
+
+---
+
+## 8. Evaluation
+
+### 8.1 The headline ablation
+
+This table *is* the paper. The critical row is **greedy vs. global**: if pairwise-then-greedy
+already captures most of the gain, the central thesis is weakened and the story must change (§10).
+
+| Configuration | What it tests |
 |---|---|
-| − global inference (pairwise argmax + heuristic) | value of Stage 4 |
-| − reliability gating | value of Stage 2 |
-| − time conditioning (fixed transition matrix) | value of Stage 3 |
-| discrete-time vs CTMC | parameterisation choice |
-| unary-only / pairwise-only | evidence source contributions |
-| budget B = 1 … 10 comparisons | Stage 6 efficiency curve |
-| coupled vs independent findings | value of Section 3.6 extension |
-| synthetic: accuracy vs comparator quality | *when* structured inference helps |
+| Direct VLM | published baseline (29.3% mean, 41.8% best) |
+| VLM + specified interval | local upper bound (60.1–76.5% for 10/14 models) |
+| Pairwise VLM + greedy/majority composition | **does decomposition alone explain the gain?** |
+| + discrete-time Markov | value of a temporal prior |
+| + CTMC | value of irregular-interval conditioning |
+| + reliability gate | value of acquisition awareness |
+| + unary observations | value of per-image evidence |
+| + missingness-aware emission | value of not collapsing "not mentioned" into "absent" |
+| + calibration | value of calibrated vs. raw comparator scores |
+| + adaptive querying | compute efficiency |
+| **Full model** | complete system |
 
-### 5.5 Statistical rigour
+### 8.2 Benchmarks
 
-5 seeds, bootstrap confidence intervals, McNemar's test against the best baseline. MICCAI
-reviewers consistently penalise single-run numbers.
+Primary: **MI-CXR**, overall and split by TEL / ICR / GTS.
+Secondary: **MS-CXR-T** (validates the comparator in isolation against BioViL-T and CoCa-CXR),
+plus TemMed-Bench / CheXTemporal for generality.
 
----
+### 8.3 Metrics
 
-## 6. Data
+- **Trajectory Consistency Rate** — fraction of predictions corresponding to a realisable
+  trajectory under the defined model. The model is 100% by construction; the finding is **how often
+  current VLM baselines emit logically impossible trajectories**. Note baselines *do not* enforce
+  this, rather than *cannot* — constrained decoding could, and we will say so.
+- **Cross-task Coherence** — agreement between TEL and ICR answers about the same finding/timeline.
+- Posterior calibration (ECE, reliability diagrams), given §3.9.
 
-All PhysioNet credentialed, all free:
+### 8.4 Rigour
 
-| Dataset | Use |
-|---|---|
-| MIMIC-CXR-JPG | images, timelines, DICOM metadata, null-change pair mining |
-| Chest ImaGenome | comparison relations, anatomical regions, `Q_f` estimation |
-| MS-CXR-T | expert progression labels (1,326 pairs), secondary benchmark |
-| MI-CXR | primary benchmark (test JSONL public on GitHub; images from MIMIC) |
-| GRCD cleaned pairs | 40,250 additional training pairs, public |
+Five seeds, bootstrap CIs, McNemar against the best baseline. Human-agreement check on a subsample,
+since MI-CXR labels are report-derived.
 
----
+### 8.5 Target, labelled as hypothesis
 
-## 7. Fit to a 12 GB GPU — and why it is a feature
-
-The entire trainable footprint is a ResNet-50/ViT-B comparator plus small heads. The inference
-layer is exact dynamic programming on a 4-state, 5-step chain — microseconds. Large VLMs appear
-only as *baselines*, run in 4-bit or via API.
-
-This inverts into one of the paper's strongest narratives:
-
-> **A ~50M-parameter calibrated comparator plus exact inference outperforms a 38B-parameter VLM
-> on multi-visit trajectory reasoning, trained end-to-end on a single consumer GPU.**
-
-Efficiency, interpretability (an explicit inspectable trajectory) and clinical grounding are
-exactly the axes MICCAI rewards.
+**29.3% → 55–65%** is a *hypothesis*, not a projection from measured data. It rests on unmeasured
+six-way comparator accuracy (§5). The claim is not asserted anywhere in the paper until the pilot
+supports it.
 
 ---
 
-## 8. Timeline — Sept 2026 → Feb 2027
+## 9. Timeline — Sept 2026 → Feb 2027
 
 | Month | Work |
 |---|---|
-| **Sept** | Submit PhysioNet CITI + credentialing (blocking, start day 1). Meanwhile: build synthetic simulation harness; implement CTMC + forward–backward; derive expected-gain curves as a function of comparator accuracy and calibration. Deep literature read. |
-| **Oct** | Access granted → build MIMIC-CXR five-visit cohort, extract Chest ImaGenome comparison labels, mine null-change pairs. Train comparator v1. |
-| **Nov** | Reliability head, `Q_f` estimation, full pipeline end-to-end. First MI-CXR numbers. |
-| **Dec** | Local VLM baselines, full ablation grid, secondary benchmarks. |
-| **Jan** | Adaptive querying, coupled-findings extension, new metrics, statistical tests. |
-| **Feb** | Writing, figures, buffer. Submit. |
-
-**Critical path:** PhysioNet credentialing (CITI "Data or Specimens Only Research" course,
-~4–6 hours; approval typically 3–14 days). Start it immediately.
-
-**The September synthetic study is not filler.** It tells you, before you touch real data,
-exactly how accurate and how calibrated the local comparator must be for global inference to pay
-off. If the answer is "comparator needs 70% pairwise accuracy and we can only reach 55%", you
-learn that in week 2 rather than month 4. It also becomes Figure 2 of the paper.
+| **Sept** | PhysioNet credentialing (blocking, start day 1). Synthetic study (§5.1). Implement CTMC + forward–backward + enumeration. |
+| **Oct** | Access → five-visit cohort, comparison labels, **severity-scale identifiability check (§3.7)**, weak null-change subset with manual validation. Comparator v1 + six-way pilot. |
+| **Nov** | Missingness-aware emission, reliability head, full pipeline, first MI-CXR numbers. |
+| **Dec** | Baselines including **greedy composition**, full ablation grid, calibration thread, secondary benchmarks. |
+| **Jan** | Adaptive querying, metrics, statistical tests, posterior calibration analysis. |
+| **Feb** | Writing, figures, buffer. Freeze method → **choose final name**. |
 
 ---
 
-## 9. Risks and mitigations
+## 10. Risks
 
-| Risk | Mitigation |
+| Risk | Response |
 |---|---|
-| **"It's just a CRF on top of a VLM."** The single most likely reviewer critique. | Depth comes from four independent pieces: CTMC time-conditioning, input-dependent calibration with null-change supervision, adaptive querying, and the efficiency result. Lead the paper with the *diagnosis* (local ✓ / global ✗), not the machinery. |
-| MI-CXR labels are report-derived and noisy | Report human-agreement analysis on a subsample; corroborate on expert-labelled MS-CXR-T |
-| Local comparator accuracy is the bottleneck | The synthetic study surfaces this in September. If confirmed, "structured inference cannot rescue a weak comparator, and here is the threshold" is still a publishable negative result — but you would pivot effort to Stage 1 |
-| Someone scoops multi-visit before Feb | Move fast; Stages 2, 3 and 6 are defensible contributions independently of the framing |
-| 12 GB VRAM ceiling | 512px, AMP, gradient checkpointing, gradient accumulation. Baselines in 4-bit or via API |
-| PhysioNet delay | September work is deliberately data-independent |
+| **Greedy composition captures most of the gain** | Then the paper's finding is "decomposition matters more than inference" — still publishable, but a different framing. **Decide now which paper you would write** so the December result does not ambush you. |
+| "It's a CRF on a VLM" | Concede the structure, defend the contribution: *yes, structurally it is a temporal graphical model; the contribution is treating a VLM as a calibrated local relation sensor and converting its clinical change vocabulary into an exact probabilistic interface, with acquisition-aware reliability and continuous-time transitions.* Then prove each component matters via §8.1. |
+| Four-state severity scale unidentifiable | Fall back to three-state or binary; scheduled as an October check |
+| Comparator accuracy is the bottleneck | Surfaced by the September/October pilot, not in January |
+| Overconfident posterior from §3.9 | Measured and reported, with down-weighting tested |
+| Option parser / finding grounding errors | Reported as part of the error budget |
+| MI-CXR label noise | Human-agreement subsample; corroborate on MS-CXR-T |
+| 12 GB VRAM | 512px, AMP, gradient checkpointing, accumulation; large VLMs in 4-bit or via API |
 
 ---
 
-## 10. Why this beats the alternatives considered
+## 11. One-paragraph framing
 
-**Idea 3 (3D text-to-voxel grounding)** — VoxTell (CVPR 2026, DKFZ) trained on 62K+ volumes with
-released checkpoints, PyPI package and napari plugin; same group owns LesionLocator (CVPR 2025)
-and the autoPET IV winner. This is a compute war against the people who defined the task.
-Infeasible on 12 GB.
-
-**Idea 2 (new-lesion discovery in whole-body CT)** — genuinely open (the Tübingen
-Longitudinal-CT dataset is new as of May 2026; autoPET IV supplies lesion prompts, so fully
-automatic discovery is unevaluated; Rocholl et al. explicitly call for end-to-end temporal
-models). But it is 3D whole-body CT — 300 patients × 600 studies — which is not trainable on
-12 GB, and it means racing DKFZ on their own dataset with their own toolchain. **Worth
-revisiting if compute changes.**
-
-**Idea 1, multi-visit (this proposal)** — open method lane, published weak baselines, public
-data, exact and cheap inference, and a clinical confound (acquisition variation) that nobody
-models and that a single consumer GPU is entirely sufficient to attack.
+> MI-CXR shows that current VLMs can often interpret a specified pair of chest radiographs but fail
+> when they must simultaneously select relevant intervals and compose multiple changes into a
+> coherent five-visit trajectory. We therefore treat the VLM not as a longitudinal reasoner, but as
+> a local probabilistic comparator. Its interval-level change distributions are converted into
+> pairwise potentials over a four-state latent disease trajectory, modulated by acquisition
+> reliability and a continuous-time transition prior. Exact inference over this small state space
+> produces a single posterior trajectory, from which temporal event localization, interval change
+> and global trajectory questions are answered consistently. The key hypothesis is that relocating
+> composition from the VLM into explicit probabilistic inference converts strong local perception
+> into reliable global longitudinal reasoning.

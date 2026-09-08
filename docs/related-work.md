@@ -18,8 +18,25 @@ of the alternatives considered.
 | GRCD, "Grounded Region Change Detection for Multi-Finding CXR Pairs" | Jul 2026 | Region-Guided Change Tokens; per-finding grounding + change labels; releases cleaned 40,250-pair benchmark | Bi-temporal, **pairs**. Released data is a Stage 1 training source |
 | CheXGround | Aug 2026 | Anatomical region tokens for grounded longitudinal interpretation | Bi-temporal |
 | Transition-Aware best-of-N | Jun 2026 | Training-free reranking of generated reports using (prior → current) transition vectors | Bi-temporal, generation-focused, training-free |
+| [TRACE](https://arxiv.org/abs/2602.02963) — Temporal Radiology with Anatomical Change Explanation | Feb 2026 | Joint temporal comparison, change classification and spatial localization; *"given a prior and current chest X-ray"* | Bi-temporal. **Also: this name is taken — do not reuse it** |
 
-**Conclusion:** no method operates over T ≥ 3 with global temporal inference. The lane is open.
+**Conclusion, stated carefully.** Every published longitudinal CXR *method* found operates on image
+pairs. We do **not** claim "the first multi-visit method" — absolute negatives are unfalsifiable and
+a single counterexample damages credibility. The claim made in the proposal is about a specific
+*combination* (proposal §7), stated as a searched claim.
+
+### Multi-visit resources that exist — and why they are not counterexamples
+
+An external review cited these as refuting the bi-temporal characterisation. They do not:
+
+| Resource | What it actually is |
+|---|---|
+| [LUNGUAGE](https://arxiv.org/abs/2505.21190) (also on PhysioNet) | A **benchmark + metric** (LUNGUAGESCORE), 1,473 reports / 230 patients. The sequential subset is **80 reports from 10 patients**, 3–14 studies each — and it structures *report text*, not image trajectories |
+| MI-CXR, LoMeVQA, CheXTemporal, MC-CXR | **Benchmarks and datasets**, not methods |
+| CheXGround, TRACE | **Bi-temporal** (prior + current) — they support the characterisation rather than refuting it |
+
+The distinction that matters: benchmarks over T ≥ 3 exist and are proliferating; image-based
+*trajectory inference methods* over T ≥ 3 were not found.
 
 ## B. Longitudinal chest X-ray — benchmarks
 

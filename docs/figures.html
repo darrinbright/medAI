@@ -1,0 +1,592 @@
+<title>Local Perception, Global Inference</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Serif:wght@500;600&display=swap">
+<style>
+  :root{
+    --ground:#F6F8FA;
+    --surface:#FFFFFF;
+    --surface-2:#EDF1F5;
+    --ink:#0F161D;
+    --muted:#56636F;
+    --faint:#7C8894;
+    --rule:#D5DCE4;
+    --rule-strong:#B9C4CF;
+    --accent:#0E7C86;
+    --warn:#A8620A;
+    --good-soft:#CDE8EB;
+    --good-softer:#E6F4F5;
+    --bad-soft:#F5DFC6;
+    --bad-softer:#FCF2E6;
+    --neu-soft:#E0E7ED;
+    --neu-softer:#EFF3F7;
+    --shadow:0 1px 2px rgba(15,22,29,.05), 0 8px 24px -16px rgba(15,22,29,.28);
+
+    --f-display:"IBM Plex Serif",Georgia,"Times New Roman",serif;
+    --f-body:"IBM Plex Sans",-apple-system,BlinkMacSystemFont,"Segoe UI",Helvetica,Arial,sans-serif;
+    --f-mono:"IBM Plex Mono",ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+  }
+  @media (prefers-color-scheme:dark){
+    :root:not([data-theme="light"]){
+      --ground:#0C1218;
+      --surface:#141C24;
+      --surface-2:#1B2530;
+      --ink:#E6EDF3;
+      --muted:#9AA7B4;
+      --faint:#77848F;
+      --rule:#2A3742;
+      --rule-strong:#3C4B58;
+      --accent:#4FC3CE;
+      --warn:#E0A253;
+      --good-soft:#14454C;
+      --good-softer:#0F2C31;
+      --bad-soft:#4A3316;
+      --bad-softer:#2E2210;
+      --neu-soft:#253039;
+      --neu-softer:#1A222A;
+      --shadow:0 1px 2px rgba(0,0,0,.4), 0 8px 24px -16px rgba(0,0,0,.7);
+    }
+  }
+  :root[data-theme="dark"]{
+    --ground:#0C1218;
+    --surface:#141C24;
+    --surface-2:#1B2530;
+    --ink:#E6EDF3;
+    --muted:#9AA7B4;
+    --faint:#77848F;
+    --rule:#2A3742;
+    --rule-strong:#3C4B58;
+    --accent:#4FC3CE;
+    --warn:#E0A253;
+    --good-soft:#14454C;
+    --good-softer:#0F2C31;
+    --bad-soft:#4A3316;
+    --bad-softer:#2E2210;
+    --neu-soft:#253039;
+    --neu-softer:#1A222A;
+    --shadow:0 1px 2px rgba(0,0,0,.4), 0 8px 24px -16px rgba(0,0,0,.7);
+  }
+
+  *{box-sizing:border-box}
+  body{
+    background:var(--ground);
+    color:var(--ink);
+    font-family:var(--f-body);
+    font-size:16px;
+    line-height:1.6;
+    -webkit-font-smoothing:antialiased;
+  }
+  .wrap{max-width:1040px;margin:0 auto;padding:56px 24px 96px;display:flex;flex-direction:column;gap:56px}
+  .col{max-width:68ch}
+
+  .eyebrow{
+    font-family:var(--f-mono);font-size:11px;font-weight:500;
+    letter-spacing:.14em;text-transform:uppercase;color:var(--accent);margin:0 0 14px
+  }
+  h1{
+    font-family:var(--f-display);font-weight:600;font-size:clamp(30px,4.4vw,44px);
+    line-height:1.15;letter-spacing:-.015em;text-wrap:balance;margin:0 0 18px
+  }
+  h2{
+    font-family:var(--f-display);font-weight:600;font-size:23px;line-height:1.25;
+    letter-spacing:-.01em;text-wrap:balance;margin:0 0 10px
+  }
+  h3{font-family:var(--f-body);font-weight:600;font-size:15px;margin:0 0 8px}
+  p{margin:0 0 14px}
+  .lede{font-size:18px;line-height:1.55;color:var(--muted)}
+  .lede strong{color:var(--ink);font-weight:600}
+  .mono{font-family:var(--f-mono)}
+  em.term{font-style:normal;font-family:var(--f-mono);font-size:.9em;color:var(--accent)}
+
+  header .rule{height:2px;background:var(--ink);width:52px;margin-bottom:22px}
+
+  /* evidence strip — the motivating numbers, deliberately not hero-sized */
+  .gap-strip{
+    display:grid;grid-template-columns:repeat(auto-fit,minmax(178px,1fr));
+    border:1px solid var(--rule);background:var(--surface);border-radius:3px;overflow:hidden
+  }
+  .gap-cell{padding:16px 18px;border-right:1px solid var(--rule)}
+  .gap-cell:last-child{border-right:0}
+  .gap-cell.hi{background:var(--surface-2)}
+  .gap-num{
+    font-family:var(--f-mono);font-weight:600;font-size:26px;letter-spacing:-.02em;
+    font-variant-numeric:tabular-nums;display:block;line-height:1.1
+  }
+  .gap-cell.hi .gap-num{color:var(--accent)}
+  .gap-lab{font-size:12.5px;color:var(--muted);display:block;margin-top:5px;line-height:1.4}
+
+  figure{margin:0;display:flex;flex-direction:column;gap:14px}
+  .figbox{
+    background:var(--surface);border:1px solid var(--rule);border-radius:3px;
+    padding:26px 22px;overflow-x:auto;box-shadow:var(--shadow)
+  }
+  figcaption{font-size:13.5px;line-height:1.55;color:var(--muted);max-width:74ch}
+  figcaption b{color:var(--ink);font-weight:600}
+  .fignum{
+    font-family:var(--f-mono);font-size:11px;font-weight:600;letter-spacing:.12em;
+    text-transform:uppercase;color:var(--accent);margin-right:9px
+  }
+  svg{display:block;max-width:100%;height:auto;min-width:640px}
+
+  /* diagram tokens */
+  .dg{color:var(--ink)}
+  .dg .card{fill:var(--surface);stroke:var(--rule-strong);stroke-width:1}
+  .dg .card2{fill:var(--surface-2);stroke:var(--rule-strong);stroke-width:1}
+  .dg .cardq{fill:none;stroke:var(--rule-strong);stroke-width:1;stroke-dasharray:3 3}
+  .dg .accbox{fill:var(--good-softer);stroke:var(--accent);stroke-width:1.4}
+  .dg .warnbox{fill:var(--bad-softer);stroke:var(--warn);stroke-width:1.4}
+  .dg .ln{stroke:var(--rule-strong);stroke-width:1.3;fill:none}
+  .dg .ln-acc{stroke:var(--accent);stroke-width:1.6;fill:none}
+  .dg .ln-warn{stroke:var(--warn);stroke-width:1.6;fill:none}
+  .dg .ln-dash{stroke:var(--rule-strong);stroke-width:1.2;fill:none;stroke-dasharray:4 3}
+  .dg .ah-n{fill:var(--rule-strong)}
+  .dg .ah-a{fill:var(--accent)}
+  .dg .ah-w{fill:var(--warn)}
+  .dg text{font-family:var(--f-body);font-size:12.5px;fill:var(--ink)}
+  .dg .t-mono{font-family:var(--f-mono);font-size:12px;font-weight:500}
+  .dg .t-sub{fill:var(--muted);font-size:11.5px}
+  .dg .t-eyebrow{
+    font-family:var(--f-mono);font-size:10.5px;font-weight:600;letter-spacing:.1em;
+    fill:var(--muted);text-transform:uppercase
+  }
+  .dg .t-acc{fill:var(--accent);font-weight:600}
+  .dg .t-warn{fill:var(--warn);font-weight:600}
+  .dg .t-big{font-family:var(--f-mono);font-size:15px;font-weight:600}
+  .dg .state{fill:var(--surface);stroke:var(--accent);stroke-width:1.5}
+  .dg .filmline{stroke:var(--rule);stroke-width:1}
+
+  /* partition grid */
+  .cell-new,.cell-worse{fill:var(--bad-soft);stroke:var(--warn);stroke-width:1}
+  .cell-res,.cell-imp{fill:var(--good-soft);stroke:var(--accent);stroke-width:1}
+  .cell-stable,.cell-abs{fill:var(--neu-soft);stroke:var(--rule-strong);stroke-width:1}
+
+  /* worked example */
+  table{border-collapse:collapse;width:100%;font-size:14px}
+  caption{text-align:left;font-size:13px;color:var(--muted);padding-bottom:10px}
+  th,td{padding:9px 12px;border-bottom:1px solid var(--rule);text-align:left}
+  th{
+    font-family:var(--f-mono);font-size:11px;font-weight:600;letter-spacing:.08em;
+    text-transform:uppercase;color:var(--muted);border-bottom:1px solid var(--rule-strong)
+  }
+  td.m{font-family:var(--f-mono);font-variant-numeric:tabular-nums}
+  .tablewrap{overflow-x:auto;background:var(--surface);border:1px solid var(--rule);border-radius:3px;padding:18px 20px}
+
+  ol.contrib{margin:0;padding-left:0;list-style:none;counter-reset:c;display:flex;flex-direction:column;gap:12px}
+  ol.contrib li{counter-increment:c;display:flex;gap:14px;font-size:15px;line-height:1.55}
+  ol.contrib li::before{
+    content:counter(c);font-family:var(--f-mono);font-size:11.5px;font-weight:600;
+    color:var(--accent);border:1px solid var(--rule-strong);border-radius:2px;
+    min-width:22px;height:22px;display:flex;align-items:center;justify-content:center;
+    flex-shrink:0;margin-top:3px
+  }
+  ol.contrib b{font-weight:600}
+
+  .note{
+    border-left:2px solid var(--warn);background:var(--bad-softer);
+    padding:16px 18px;border-radius:0 3px 3px 0;font-size:14.5px;line-height:1.6
+  }
+  .note b{font-weight:600}
+  footer{border-top:1px solid var(--rule);padding-top:18px;font-size:13px;color:var(--faint)}
+</style>
+
+<div class="wrap">
+
+  <header class="col">
+    <div class="rule"></div>
+    <p class="eyebrow">L2G &middot; MICCAI 2027 &middot; Figure drafts &middot; name provisional</p>
+    <h1>Local perception, global inference</h1>
+    <p class="lede">Vision–language models are competent <strong>local comparators</strong> and incompetent <strong>global integrators</strong>. On five-visit chest radiograph timelines they average 29.3% — but hand them the relevant interval and 10 of the 14 evaluated models reach 60.1–76.5%. The method never asks the model the global question.</p>
+  </header>
+
+  <section class="gap-strip" aria-label="MI-CXR benchmark results">
+    <div class="gap-cell"><span class="gap-num">20.0%</span><span class="gap-lab">Random baseline<br>five-way multiple choice</span></div>
+    <div class="gap-cell"><span class="gap-num">29.3%</span><span class="gap-lab">Mean of 14 VLMs<br>MI-CXR, 5,311 items</span></div>
+    <div class="gap-cell"><span class="gap-num">41.8%</span><span class="gap-lab">Best published<br>InternVL3.5-38B</span></div>
+    <div class="gap-cell hi"><span class="gap-num">60–76%</span><span class="gap-lab">10 of 14 models, interval given<br>the headroom targeted</span></div>
+  </section>
+
+  <figure>
+    <div class="figbox">
+      <svg class="dg" viewBox="0 0 940 312" role="img" aria-label="Direct visual question answering asks one model to detect findings, select intervals, compare and compose in a single call. TRACE splits the same work into a local comparator followed by exact inference.">
+        <defs>
+          <marker id="ah1" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+            <path class="ah-n" d="M0 0 L10 5 L0 10 z"/>
+          </marker>
+          <marker id="ah2" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+            <path class="ah-a" d="M0 0 L10 5 L0 10 z"/>
+          </marker>
+        </defs>
+
+        <!-- ROW A -->
+        <text class="t-eyebrow" x="40" y="20">A &nbsp;· &nbsp;Direct VQA — what every model does now</text>
+
+        <g>
+          <rect class="card" x="40"  y="36" width="40" height="56" rx="2"/>
+          <rect class="card" x="86"  y="36" width="40" height="56" rx="2"/>
+          <rect class="card" x="132" y="36" width="40" height="56" rx="2"/>
+          <rect class="card" x="178" y="36" width="40" height="56" rx="2"/>
+          <rect class="card" x="224" y="36" width="40" height="56" rx="2"/>
+          <line class="filmline" x1="46" y1="80" x2="74" y2="80"/>
+          <line class="filmline" x1="92" y1="80" x2="120" y2="80"/>
+          <line class="filmline" x1="138" y1="80" x2="166" y2="80"/>
+          <line class="filmline" x1="184" y1="80" x2="212" y2="80"/>
+          <line class="filmline" x1="230" y1="80" x2="258" y2="80"/>
+          <text class="t-mono t-sub" x="60"  y="56" text-anchor="middle">V1</text>
+          <text class="t-mono t-sub" x="106" y="56" text-anchor="middle">V2</text>
+          <text class="t-mono t-sub" x="152" y="56" text-anchor="middle">V3</text>
+          <text class="t-mono t-sub" x="198" y="56" text-anchor="middle">V4</text>
+          <text class="t-mono t-sub" x="244" y="56" text-anchor="middle">V5</text>
+        </g>
+        <text class="t-sub" x="152" y="110" text-anchor="middle">five-visit timeline</text>
+
+        <line class="ln" x1="272" y1="64" x2="304" y2="64" marker-end="url(#ah1)"/>
+
+        <rect class="card2" x="316" y="36" width="360" height="56" rx="2"/>
+        <text class="t-mono" x="496" y="60" text-anchor="middle">one VLM call</text>
+        <text class="t-sub"  x="496" y="79" text-anchor="middle">detect · select intervals · compare · compose</text>
+        <text class="t-sub"  x="496" y="110" text-anchor="middle">four jobs, one shot — any single failure loses the answer</text>
+
+        <line class="ln" x1="684" y1="64" x2="716" y2="64" marker-end="url(#ah1)"/>
+
+        <rect class="card" x="724" y="36" width="176" height="56" rx="2"/>
+        <text class="t-big" x="812" y="61" text-anchor="middle">29.3%</text>
+        <text class="t-sub" x="812" y="79" text-anchor="middle">41.8% best</text>
+
+        <line class="ln-dash" x1="40" y1="140" x2="900" y2="140"/>
+
+        <!-- ROW B -->
+        <text class="t-eyebrow" x="40" y="172">B &nbsp;· &nbsp;L2G — perception and reasoning separated</text>
+
+        <g>
+          <rect class="card" x="40"  y="188" width="40" height="56" rx="2"/>
+          <rect class="card" x="86"  y="188" width="40" height="56" rx="2"/>
+          <rect class="card" x="132" y="188" width="40" height="56" rx="2"/>
+          <rect class="card" x="178" y="188" width="40" height="56" rx="2"/>
+          <rect class="card" x="224" y="188" width="40" height="56" rx="2"/>
+          <line class="filmline" x1="46" y1="232" x2="74" y2="232"/>
+          <line class="filmline" x1="92" y1="232" x2="120" y2="232"/>
+          <line class="filmline" x1="138" y1="232" x2="166" y2="232"/>
+          <line class="filmline" x1="184" y1="232" x2="212" y2="232"/>
+          <line class="filmline" x1="230" y1="232" x2="258" y2="232"/>
+          <text class="t-mono t-sub" x="60"  y="208" text-anchor="middle">V1</text>
+          <text class="t-mono t-sub" x="106" y="208" text-anchor="middle">V2</text>
+          <text class="t-mono t-sub" x="152" y="208" text-anchor="middle">V3</text>
+          <text class="t-mono t-sub" x="198" y="208" text-anchor="middle">V4</text>
+          <text class="t-mono t-sub" x="244" y="208" text-anchor="middle">V5</text>
+        </g>
+        <text class="t-sub" x="152" y="262" text-anchor="middle">five-visit timeline</text>
+
+        <line class="ln" x1="272" y1="216" x2="300" y2="216" marker-end="url(#ah1)"/>
+
+        <rect class="card2" x="308" y="188" width="172" height="56" rx="2"/>
+        <text class="t-mono" x="394" y="212" text-anchor="middle">local comparator</text>
+        <text class="t-sub"  x="394" y="230" text-anchor="middle">9 well-posed queries</text>
+        <text class="t-sub"  x="394" y="262" text-anchor="middle">perception only</text>
+
+        <line class="ln-acc" x1="488" y1="216" x2="524" y2="216" marker-end="url(#ah2)"/>
+        <text class="t-mono t-acc" x="506" y="205" text-anchor="middle" style="font-size:10.5px">p(rel)</text>
+
+        <rect class="accbox" x="532" y="188" width="172" height="56" rx="2"/>
+        <text class="t-mono" x="618" y="212" text-anchor="middle">exact inference</text>
+        <text class="t-sub"  x="618" y="230" text-anchor="middle">1024 trajectories, enumerated</text>
+        <text class="t-sub"  x="618" y="262" text-anchor="middle">reasoning only</text>
+
+        <line class="ln-acc" x1="712" y1="216" x2="716" y2="216"/>
+        <line class="ln-acc" x1="712" y1="216" x2="716" y2="216" marker-end="url(#ah2)"/>
+
+        <rect class="accbox" x="724" y="188" width="176" height="56" rx="2"/>
+        <text class="t-big t-acc" x="812" y="213" text-anchor="middle">55–65%</text>
+        <text class="t-sub" x="812" y="231" text-anchor="middle">hypothesis, not result</text>
+      </svg>
+    </div>
+    <figcaption><span class="fignum">Fig 1</span><b>The difference is where composition happens.</b> Row A loads detection, interval selection, comparison and composition onto a single forward pass. Row B asks the model only the questions it already answers well, and moves composition into exact inference within the specified finite-state model. Same images, same findings — only the division of labour changes.</figcaption>
+  </figure>
+
+  <section class="col">
+    <h2>How the fusion works</h2>
+    <p>Each finding&rsquo;s course is a hidden ordinal sequence <span class="mono">s<sub>t</sub> ∈ {0 absent, 1 mild, 2 moderate, 3 severe}</span>. The comparator and the per-image reads are noisy observations of that sequence; nothing else in the pipeline is learned end-to-end.</p>
+    <p>Two things modulate the evidence before it reaches inference. A <em class="term">reliability gate ρ</em> damps comparisons between films that are not really comparable — a change of projection from AP to PA, a shallow inspiration, a rotated patient. And a <em class="term">continuous-time prior</em> conditions transitions on the true interval, so two days and forty-five days are not treated alike.</p>
+  </section>
+
+  <figure>
+    <div class="figbox">
+      <svg class="dg" viewBox="0 0 940 596" role="img" aria-label="Pipeline: five visits with irregular intervals and changing projections feed a pairwise comparator; a reliability gate and a continuous-time Markov prior shape the pairwise potential; exact forward-backward inference over the latent state chain yields one posterior that all three question types read from.">
+        <defs>
+          <marker id="bh1" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+            <path class="ah-n" d="M0 0 L10 5 L0 10 z"/>
+          </marker>
+          <marker id="bh2" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+            <path class="ah-a" d="M0 0 L10 5 L0 10 z"/>
+          </marker>
+          <marker id="bh3" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+            <path class="ah-w" d="M0 0 L10 5 L0 10 z"/>
+          </marker>
+        </defs>
+
+        <!-- band 1: visits -->
+        <text class="t-eyebrow" x="40" y="20">1 &nbsp;· &nbsp;Observations — irregular intervals, changing projection</text>
+        <g>
+          <rect class="card" x="40"  y="34" width="100" height="54" rx="2"/>
+          <rect class="card" x="230" y="34" width="100" height="54" rx="2"/>
+          <rect class="card" x="420" y="34" width="100" height="54" rx="2"/>
+          <rect class="card" x="610" y="34" width="100" height="54" rx="2"/>
+          <rect class="card" x="800" y="34" width="100" height="54" rx="2"/>
+          <text class="t-mono" x="90"  y="58" text-anchor="middle">V1</text>
+          <text class="t-mono" x="280" y="58" text-anchor="middle">V2</text>
+          <text class="t-mono" x="470" y="58" text-anchor="middle">V3</text>
+          <text class="t-mono" x="660" y="58" text-anchor="middle">V4</text>
+          <text class="t-mono" x="850" y="58" text-anchor="middle">V5</text>
+          <text class="t-sub" x="90"  y="76" text-anchor="middle">AP</text>
+          <text class="t-sub" x="280" y="76" text-anchor="middle">AP</text>
+          <text class="t-warn t-sub" x="470" y="76" text-anchor="middle" style="font-size:11.5px">PA</text>
+          <text class="t-sub" x="660" y="76" text-anchor="middle">AP</text>
+          <text class="t-sub" x="850" y="76" text-anchor="middle">AP</text>
+        </g>
+
+        <!-- band 2: pairwise queries -->
+        <g>
+          <line class="ln" x1="140" y1="112" x2="230" y2="112"/>
+          <line class="ln" x1="330" y1="112" x2="420" y2="112"/>
+          <line class="ln" x1="520" y1="112" x2="610" y2="112"/>
+          <line class="ln" x1="710" y1="112" x2="800" y2="112"/>
+          <line class="ln-dash" x1="90"  y1="88" x2="90"  y2="112"/>
+          <line class="ln-dash" x1="280" y1="88" x2="280" y2="112"/>
+          <line class="ln-dash" x1="470" y1="88" x2="470" y2="112"/>
+          <line class="ln-dash" x1="660" y1="88" x2="660" y2="112"/>
+          <line class="ln-dash" x1="850" y1="88" x2="850" y2="112"/>
+          <text class="t-mono t-sub" x="185" y="106" text-anchor="middle">Δτ = 2 d</text>
+          <text class="t-mono t-sub" x="375" y="106" text-anchor="middle">Δτ = 14 d</text>
+          <text class="t-mono t-sub" x="565" y="106" text-anchor="middle">Δτ = 3 d</text>
+          <text class="t-mono t-sub" x="755" y="106" text-anchor="middle">Δτ = 45 d</text>
+          <text class="t-sub" x="185" y="130" text-anchor="middle">absent-both .70</text>
+          <text class="t-sub" x="375" y="130" text-anchor="middle">new .50</text>
+          <text class="t-sub" x="565" y="130" text-anchor="middle">worsened .60</text>
+          <text class="t-sub" x="755" y="130" text-anchor="middle">improved .55</text>
+        </g>
+
+        <!-- band 3: modulators -->
+        <text class="t-eyebrow" x="40" y="176">2 &nbsp;· &nbsp;Evidence is shaped before it is fused</text>
+
+        <rect class="warnbox" x="40" y="192" width="250" height="70" rx="2"/>
+        <text class="t-mono t-warn" x="165" y="215" text-anchor="middle">reliability gate ρ</text>
+        <text class="t-sub" x="165" y="233" text-anchor="middle">ViewPosition · inspiration · rotation</text>
+        <text class="t-sub" x="165" y="250" text-anchor="middle">AP→PA at V3 ⇒ ρ ↓, evidence damped</text>
+
+        <rect class="accbox" x="650" y="192" width="250" height="70" rx="2"/>
+        <text class="t-mono t-acc" x="775" y="215" text-anchor="middle">CTMC prior</text>
+        <text class="t-mono t-sub" x="775" y="234" text-anchor="middle">exp(Q_f · Δτ)</text>
+        <text class="t-sub" x="775" y="251" text-anchor="middle">45 d and 2 d are not alike</text>
+
+        <rect class="card2" x="330" y="196" width="280" height="62" rx="2"/>
+        <text class="t-mono" x="470" y="220" text-anchor="middle">ψ(s, s′)</text>
+        <text class="t-sub" x="470" y="240" text-anchor="middle">pairwise potential over hidden states</text>
+
+        <line class="ln-warn" x1="290" y1="227" x2="322" y2="227" marker-end="url(#bh3)"/>
+        <line class="ln-acc"  x1="648" y1="227" x2="618" y2="227" marker-end="url(#bh2)"/>
+        <line class="ln" x1="470" y1="140" x2="470" y2="190" marker-end="url(#bh1)"/>
+        <text class="t-sub" x="484" y="168">4 × p(relation)</text>
+
+        <!-- band 4: latent chain -->
+        <text class="t-eyebrow" x="40" y="300">3 &nbsp;· &nbsp;Latent ordinal chain — one per finding</text>
+        <line class="ln" x1="470" y1="262" x2="470" y2="316" marker-end="url(#bh1)"/>
+
+        <g>
+          <circle class="state" cx="90"  cy="352" r="25"/>
+          <circle class="state" cx="280" cy="352" r="25"/>
+          <circle class="state" cx="470" cy="352" r="25"/>
+          <circle class="state" cx="660" cy="352" r="25"/>
+          <circle class="state" cx="850" cy="352" r="25"/>
+          <text class="t-mono" x="90"  y="357" text-anchor="middle">s₁</text>
+          <text class="t-mono" x="280" y="357" text-anchor="middle">s₂</text>
+          <text class="t-mono" x="470" y="357" text-anchor="middle">s₃</text>
+          <text class="t-mono" x="660" y="357" text-anchor="middle">s₄</text>
+          <text class="t-mono" x="850" y="357" text-anchor="middle">s₅</text>
+          <line class="ln-acc" x1="115" y1="352" x2="249" y2="352" marker-end="url(#bh2)"/>
+          <line class="ln-acc" x1="305" y1="352" x2="439" y2="352" marker-end="url(#bh2)"/>
+          <line class="ln-acc" x1="495" y1="352" x2="629" y2="352" marker-end="url(#bh2)"/>
+          <line class="ln-acc" x1="685" y1="352" x2="819" y2="352" marker-end="url(#bh2)"/>
+          <text class="t-mono t-sub" x="90"  y="398" text-anchor="middle">0</text>
+          <text class="t-mono t-sub" x="280" y="398" text-anchor="middle">0</text>
+          <text class="t-mono t-sub" x="470" y="398" text-anchor="middle">1</text>
+          <text class="t-mono t-sub" x="660" y="398" text-anchor="middle">2</text>
+          <text class="t-mono t-sub" x="850" y="398" text-anchor="middle">1</text>
+          <text class="t-sub" x="470" y="418" text-anchor="middle">recovered MAP trajectory — absent, absent, mild, moderate, mild</text>
+          <text class="t-sub" x="90" y="322" text-anchor="middle">↑ 5 × P(yₜ | sₜ)</text>
+          <text class="t-sub" x="280" y="322" text-anchor="middle">↑</text>
+          <text class="t-sub" x="470" y="322" text-anchor="middle">↑</text>
+          <text class="t-sub" x="660" y="322" text-anchor="middle">↑</text>
+          <text class="t-sub" x="850" y="322" text-anchor="middle">↑</text>
+        </g>
+
+        <!-- band 5: inference + readouts -->
+        <text class="t-eyebrow" x="40" y="456">4 &nbsp;· &nbsp;One posterior, three read-outs</text>
+        <rect class="accbox" x="330" y="470" width="280" height="46" rx="2"/>
+        <text class="t-mono" x="470" y="490" text-anchor="middle">forward–backward</text>
+        <text class="t-sub" x="470" y="507" text-anchor="middle">exact · 4⁵ = 1024 trajectories</text>
+        <line class="ln-acc" x1="470" y1="428" x2="470" y2="468" marker-end="url(#bh2)"/>
+
+        <rect class="card" x="40"  y="540" width="256" height="46" rx="2"/>
+        <rect class="card" x="342" y="540" width="256" height="46" rx="2"/>
+        <rect class="card" x="644" y="540" width="256" height="46" rx="2"/>
+        <text class="t-mono" x="168" y="560" text-anchor="middle">TEL</text>
+        <text class="t-mono" x="470" y="560" text-anchor="middle">ICR</text>
+        <text class="t-mono" x="772" y="560" text-anchor="middle">GTS</text>
+        <text class="t-sub" x="168" y="577" text-anchor="middle">argmax P(s₍ₜ₋₁₎=0, sₜ&gt;0) → V3</text>
+        <text class="t-sub" x="470" y="577" text-anchor="middle">posterior over relation (i, j)</text>
+        <text class="t-sub" x="772" y="577" text-anchor="middle">likelihood of trajectory shape</text>
+
+        <path class="ln-acc" d="M470 516 L470 528 L168 528 L168 538" marker-end="url(#bh2)"/>
+        <path class="ln-acc" d="M470 516 L470 538" marker-end="url(#bh2)"/>
+        <path class="ln-acc" d="M470 516 L470 528 L772 528 L772 538" marker-end="url(#bh2)"/>
+      </svg>
+    </div>
+    <figcaption><span class="fignum">Fig 2</span><b>All three question types read from the same posterior</b>, so their answers are consistent by construction — with the defined model, not clinically. Current baselines <i>do not</i> enforce this (constrained decoding could), so the result is a measurement of how often they emit impossible trajectories. Note the projection change at V3: the reliability gate damps that comparison rather than letting an apparent change propagate. Nine observations enter — five per-image reads and four pairwise comparisons.</figcaption>
+  </figure>
+
+  <section class="col">
+    <h2>Why the relation algebra is the hinge</h2>
+    <p>The six change relations radiologists already use are not merely convenient vocabulary. They <strong>exactly partition</strong> the 4&times;4 transition space — all sixteen cells, no overlap, no remainder. So a comparator that predicts these six <em>is already</em> a pairwise potential over the hidden chain. No heuristic mapping layer, no tuned translation.</p>
+  </section>
+
+  <figure>
+    <div class="figbox">
+      <svg class="dg" viewBox="0 0 940 452" role="img" aria-label="A four by four grid of transitions from state s to state s prime, with all sixteen cells partitioned into six clinical change relations: absent-both, new, resolved, stable, worsened and improved.">
+        <text class="t-eyebrow" x="150" y="24">s′ &nbsp;— &nbsp;state at visit t+1</text>
+        <text class="t-mono t-sub" x="190" y="52" text-anchor="middle">0 absent</text>
+        <text class="t-mono t-sub" x="278" y="52" text-anchor="middle">1 mild</text>
+        <text class="t-mono t-sub" x="366" y="52" text-anchor="middle">2 mod</text>
+        <text class="t-mono t-sub" x="454" y="52" text-anchor="middle">3 sev</text>
+
+        <text class="t-eyebrow" x="20" y="90" transform="rotate(-90 20 90)">s — visit t</text>
+        <text class="t-mono t-sub" x="140" y="98" text-anchor="end">0 absent</text>
+        <text class="t-mono t-sub" x="140" y="186" text-anchor="end">1 mild</text>
+        <text class="t-mono t-sub" x="140" y="274" text-anchor="end">2 mod</text>
+        <text class="t-mono t-sub" x="140" y="362" text-anchor="end">3 sev</text>
+
+        <!-- row s=0 -->
+        <rect class="cell-abs"   x="150" y="66"  width="80" height="80"/>
+        <rect class="cell-new"   x="238" y="66"  width="80" height="80"/>
+        <rect class="cell-new"   x="326" y="66"  width="80" height="80"/>
+        <rect class="cell-new"   x="414" y="66"  width="80" height="80"/>
+        <text class="t-sub" x="190" y="110" text-anchor="middle">absent</text>
+        <text class="t-sub" x="190" y="124" text-anchor="middle">both</text>
+        <text class="t-sub" x="278" y="112" text-anchor="middle">new</text>
+        <text class="t-sub" x="366" y="112" text-anchor="middle">new</text>
+        <text class="t-sub" x="454" y="112" text-anchor="middle">new</text>
+
+        <!-- row s=1 -->
+        <rect class="cell-res"    x="150" y="154" width="80" height="80"/>
+        <rect class="cell-stable" x="238" y="154" width="80" height="80"/>
+        <rect class="cell-worse"  x="326" y="154" width="80" height="80"/>
+        <rect class="cell-worse"  x="414" y="154" width="80" height="80"/>
+        <text class="t-sub" x="190" y="200" text-anchor="middle">resolved</text>
+        <text class="t-sub" x="278" y="200" text-anchor="middle">stable</text>
+        <text class="t-sub" x="366" y="200" text-anchor="middle">worsened</text>
+        <text class="t-sub" x="454" y="200" text-anchor="middle">worsened</text>
+
+        <!-- row s=2 -->
+        <rect class="cell-res"    x="150" y="242" width="80" height="80"/>
+        <rect class="cell-imp"    x="238" y="242" width="80" height="80"/>
+        <rect class="cell-stable" x="326" y="242" width="80" height="80"/>
+        <rect class="cell-worse"  x="414" y="242" width="80" height="80"/>
+        <text class="t-sub" x="190" y="288" text-anchor="middle">resolved</text>
+        <text class="t-sub" x="278" y="288" text-anchor="middle">improved</text>
+        <text class="t-sub" x="366" y="288" text-anchor="middle">stable</text>
+        <text class="t-sub" x="454" y="288" text-anchor="middle">worsened</text>
+
+        <!-- row s=3 -->
+        <rect class="cell-res"    x="150" y="330" width="80" height="80"/>
+        <rect class="cell-imp"    x="238" y="330" width="80" height="80"/>
+        <rect class="cell-imp"    x="326" y="330" width="80" height="80"/>
+        <rect class="cell-stable" x="414" y="330" width="80" height="80"/>
+        <text class="t-sub" x="190" y="376" text-anchor="middle">resolved</text>
+        <text class="t-sub" x="278" y="376" text-anchor="middle">improved</text>
+        <text class="t-sub" x="366" y="376" text-anchor="middle">improved</text>
+        <text class="t-sub" x="454" y="376" text-anchor="middle">stable</text>
+
+        <!-- legend -->
+        <text class="t-eyebrow" x="556" y="72">The partition</text>
+        <g>
+          <rect class="cell-abs"    x="556" y="90"  width="16" height="16"/>
+          <text class="t-sub" x="582" y="103">absent-both &nbsp;·&nbsp; 1 cell</text>
+          <rect class="cell-new"    x="556" y="122" width="16" height="16"/>
+          <text class="t-sub" x="582" y="135">new &nbsp;·&nbsp; 3 cells</text>
+          <rect class="cell-worse"  x="556" y="154" width="16" height="16"/>
+          <text class="t-sub" x="582" y="167">worsened &nbsp;·&nbsp; 3 cells</text>
+          <rect class="cell-stable" x="556" y="186" width="16" height="16"/>
+          <text class="t-sub" x="582" y="199">stable &nbsp;·&nbsp; 3 cells</text>
+          <rect class="cell-imp"    x="556" y="218" width="16" height="16"/>
+          <text class="t-sub" x="582" y="231">improved &nbsp;·&nbsp; 3 cells</text>
+          <rect class="cell-res"    x="556" y="250" width="16" height="16"/>
+          <text class="t-sub" x="582" y="263">resolved &nbsp;·&nbsp; 3 cells</text>
+          <line class="ln" x1="556" y1="284" x2="880" y2="284"/>
+          <text class="t-mono" x="556" y="306">16 of 16 cells &nbsp;— &nbsp;no overlap, no remainder</text>
+        </g>
+
+        <rect class="cardq" x="556" y="330" width="324" height="80" rx="2"/>
+        <text class="t-mono t-sub" x="572" y="350" style="font-size:10.5px">P(s₁:T | y, z) ∝ P(s₁) ∏ P(yₜ|sₜ) ∏ ψₜ(sₜ,sₜ₊₁)</text>
+        <text class="t-mono t-sub" x="572" y="370" style="font-size:10.5px">ψ(s,s′) ∝ p(rel(s,s′))^ρ × P_CTMC(s′|s, Δτ)</text>
+        <text class="t-sub" x="572" y="392">unary reads and pairwise relations both enter</text>
+      </svg>
+    </div>
+    <figcaption><span class="fignum">Fig 3</span><b>Colour encodes clinical direction, not category:</b> amber for appearing or worsening, teal for resolving or improving, neutral for no change. The partition itself is trivially verifiable and is not the contribution — what it buys is the removal of any heuristic mapping layer between comparator output and inference potential.</figcaption>
+  </figure>
+
+  <section class="col" style="display:flex;flex-direction:column;gap:18px">
+    <div>
+      <h2>The worked example</h2>
+      <p>Right pleural effusion, true course <span class="mono">[0, 0, 1, 2, 1]</span>. Not one local observation is confident — yet the trajectory is recovered, because nine noisy observations constrain five states and the evidence overlaps.</p>
+    </div>
+    <div class="tablewrap">
+      <table>
+        <caption>Local comparator output, pleural effusion</caption>
+        <thead>
+          <tr><th>Interval</th><th>Δτ</th><th>Top relation</th><th>p</th><th>Runner-up</th></tr>
+        </thead>
+        <tbody>
+          <tr><td class="m">V1 → V2</td><td class="m">2 d</td><td>absent-both</td><td class="m">0.70</td><td>—</td></tr>
+          <tr><td class="m">V2 → V3</td><td class="m">14 d</td><td>new</td><td class="m">0.50</td><td>stable 0.30</td></tr>
+          <tr><td class="m">V3 → V4</td><td class="m">3 d</td><td>worsened</td><td class="m">0.60</td><td>stable 0.22</td></tr>
+          <tr><td class="m">V4 → V5</td><td class="m">45 d</td><td>improved</td><td class="m">0.55</td><td>stable 0.28</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <div class="tablewrap">
+      <table>
+        <caption>Resulting trajectory posterior — illustrative, from all 1024 enumerated paths</caption>
+        <thead><tr><th>Trajectory</th><th>Posterior</th><th>Reading</th></tr></thead>
+        <tbody>
+          <tr><td class="m" style="color:var(--accent);font-weight:600">[0, 0, 1, 2, 1]</td><td class="m" style="color:var(--accent);font-weight:600">0.61</td><td>appears V3, worsens, then improves</td></tr>
+          <tr><td class="m">[0, 0, 1, 1, 1]</td><td class="m">0.14</td><td>appears V3, stable throughout</td></tr>
+          <tr><td class="m">[0, 0, 0, 2, 1]</td><td class="m">0.07</td><td>appears V4 instead</td></tr>
+          <tr><td class="m">[0, 0, 2, 2, 1]</td><td class="m">0.05</td><td>appears V3 already moderate</td></tr>
+          <tr><td class="m">remaining 1020 paths</td><td class="m">0.13</td><td>—</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p><b>&ldquo;When did the effusion first appear?&rdquo;</b> &nbsp;→&nbsp; <span class="mono">argmax<sub>t</sub> P(s<sub>t−1</sub>=0, s<sub>t</sub>&gt;0)</span> &nbsp;=&nbsp; <span class="mono" style="color:var(--accent);font-weight:600">Visit 3</span>. No single observation exceeded 0.70, yet the fused posterior puts 0.61 on the clinically sensible trajectory — the pooling a direct VQA call cannot do. <b>These posteriors are illustrative</b>, computed from the comparator outputs above under a uniform prior; the real numbers come from the pilot.</p>
+  </section>
+
+  <section class="col">
+    <h2>Contributions</h2>
+    <ol class="contrib">
+      <li><b>A local-to-global formulation</b> for longitudinal CXR reasoning that uses VLMs as interval-level change comparators and delegates trajectory composition to structured probabilistic inference.</li>
+      <li><b>A clinically grounded transition representation</b> in which the six change relations form an exact partition of the four-state ordinal transition space, enabling direct conversion of comparator outputs into pairwise potentials without a heuristic mapping layer.</li>
+      <li><b>Acquisition-aware evidence weighting</b> that down-weights unreliable comparisons from projection, positioning and image-quality differences — supervised by same-day repeats treated as <i>weak</i> null-change signal, not ground truth.</li>
+      <li><b>A continuous-time transition prior</b> accounting for irregular inter-visit intervals, roughly six rates per finding under a birth–death restriction.</li>
+      <li><b>Exact finite-state inference</b> producing one trajectory posterior from which TEL, ICR and GTS are derived, giving architectural cross-task consistency.</li>
+      <li><b>A systematic evaluation of local-to-global reasoning</b> — comparator calibration, trajectory consistency, and compute/accuracy trade-offs.</li>
+    </ol>
+  </section>
+
+  <section class="col">
+    <div class="note">
+      <b>Three things this page does not yet establish.</b> The <b>55–65% target</b> is a hypothesis: it rests on six-way comparator accuracy, which nobody has published — CoCa-CXR&rsquo;s ~65% is a <em>three-class</em> result. The <b>critical experiment</b> is pairwise-then-greedy composition: if greedy already captures most of the gain, the finding becomes &ldquo;decomposition matters&rdquo; rather than &ldquo;inference matters&rdquo;, and that paper must be planned for in advance. And the emission model must treat a finding <b>not mentioned</b> in a report as <em>not observed</em>, never as absent — reports are incomplete observations, and collapsing the two would corrupt both labels and inference.
+    </div>
+  </section>
+
+  <footer class="col">
+    Benchmark figures from MI-CXR (ACL Findings 2026), 5,311 test items over five-visit MIMIC-CXR timelines. Draft figures for MICCAI 2027 submission.
+  </footer>
+
+</div>

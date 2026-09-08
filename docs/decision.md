@@ -1,6 +1,11 @@
-# Decision: Idea 1 (TRACE)
+# Decision: Idea 1 — local-to-global trajectory inference
 
 **Date:** September 2026 · **Target:** MICCAI 2027
+
+> **Name change.** Formerly written up as *TRACE*; that name is taken by
+> [an existing CXR temporal model](https://arxiv.org/abs/2602.02963). Working shorthand is now
+> `L2G`, a placeholder until the method is frozen. External review applied — see
+> [`review-response.md`](review-response.md).
 
 Selected from eight candidates in [`ideas.md`](ideas.md). Full method in
 [`proposal.md`](proposal.md).
@@ -43,12 +48,14 @@ Idea 1 has no equivalent structural tension.
 
 ## Known risks
 
-1. **"It's just a CRF."** Lead with the diagnosis, not the machinery. Three contributions stand
-   alone: Δτ-conditioned CTMC priors, null-change calibration from same-day repeats, adaptive
-   querying. Strongest: cross-task consistency by construction is a property no baseline has at
-   any accuracy — not a number to beat.
+1. **"It's just a CRF."** Concede the structure, defend the contribution. Lead with the
+   diagnosis, not the machinery, and prove each component matters via the ablation grid.
 2. **MI-CXR labels are report-derived and noisy.** Budget a human-agreement check on a subsample;
    corroborate on expert-labelled MS-CXR-T.
+3. **Greedy composition may capture most of the gain.** The single most important experiment.
+   Decide before December which paper you would write if it does — see proposal §10.
+4. **Report missingness.** "Not mentioned" is not "absent"; handled by the MNAR emission model
+   in proposal §3.4.
 
 ## Next steps
 

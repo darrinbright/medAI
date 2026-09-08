@@ -2,7 +2,9 @@
 
 Research project targeting **MICCAI 2027**.
 
-**TRACE** — Trajectory Reasoning by Aggregating Calibrated Evidence.
+Working shorthand **`L2G`** — local-to-global trajectory inference. *(Placeholder: the name
+*TRACE* is already taken by an existing CXR temporal model. Final name chosen once the method is
+frozen.)*
 
 > VLMs are competent local comparators and incompetent global integrators. Use the VLM only for
 > local pairwise perception, then perform exact probabilistic inference over a latent disease
@@ -18,6 +20,7 @@ perception failure, and it is what this project attacks.
 
 | Document | Contents |
 |---|---|
+| [`docs/review-response.md`](docs/review-response.md) | External review: what was accepted, what was rejected and why, what both missed |
 | [`docs/decision.md`](docs/decision.md) | **Chosen direction and why** — Idea 1 (TRACE), with the case against the other seven |
 | [`docs/ideas.md`](docs/ideas.md) | **Eight candidate paper ideas** with baselines, data, risk and a recommendation — start here |
 | [`docs/proposal.md`](docs/proposal.md) | Full research proposal: problem, method (6 stages), contributions, evaluation plan, timeline, risks |
@@ -47,5 +50,8 @@ perception failure, and it is what this project attacks.
 
 ## Target result
 
-MI-CXR overall accuracy **29.3% → 55–65%**, against a best published baseline of 41.8%, using a
-~50M-parameter comparator plus exact inference on a single consumer GPU.
+MI-CXR overall accuracy **29.3% → 55–65%**, against a best published baseline of 41.8%.
+
+**This is a hypothesis, not a projection.** It rests on six-way comparator accuracy, which nobody
+has published — CoCa-CXR's 65.0% is a *three-class* result. The September synthetic study and the
+October six-way pilot test it before the claim is made anywhere.
