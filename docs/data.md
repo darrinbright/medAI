@@ -127,6 +127,55 @@ Budget ~1 TB of free disk to be comfortable, but it is workable on far less.
 
 ---
 
+## Cohort builder — ready to run the hour credentials land
+
+`sim/cohort.py` + `run_cohort.py`. It works entirely off the metadata CSV plus the split file,
+**no images required**, and the manifest it emits is what drives the targeted download above.
+
+```bash
+python run_cohort.py --metadata mimic-cxr-2.0.0-metadata.csv.gz \
+                     --split mimic-cxr-2.0.0-split.csv.gz --out cohort/
+```
+
+With no `--metadata` it runs against a synthetic stand-in carrying the same schema, so the whole
+pipeline is exercisable now. Three outputs:
+
+| File | Contents |
+|---|---|
+| `timelines.csv` | ordered runs of 5 frontal studies per patient, with `delta_tau_days` per interval |
+| `null_pairs.csv` | same-patient studies within 24h, flagged `same_day` and `projection_change` |
+| `manifest.txt` | unique JPG paths to fetch, and nothing else |
+
+Decisions worth knowing:
+
+- **One frontal image per study**, PA preferred over AP (less magnification). Lateral and
+  missing-`ViewPosition` studies are dropped, so "consecutive" means consecutive among *usable*
+  studies.
+- **Non-overlapping windows by default.** Sliding windows would yield more timelines that share
+  four of five images, which inflates apparent sample size.
+- **Splits are a property of the patient.** Every timeline inherits its subject's split, so no
+  patient straddles train and test. Asserted in the tests.
+- **`projection_change` is surfaced on null pairs** because AP↔PA swaps are exactly the pairs
+  where apparent change is most likely acquisition rather than disease — the condition §3.6's
+  gate decision turns on.
+
+### A bug the synthetic stand-in caught
+
+The first run reported every inter-visit gap as under one day, median 0.1 d. That was the
+`StudyTime` fraction alone: pandas 2+ infers datetime resolution, so `.astype("int64")` on a
+datetime Series is **not** reliably nanoseconds, and dividing by a hardcoded `86.4e12` collapsed
+the date component to nearly zero.
+
+Nothing raised. On the real metadata it would have silently handed the CTMC — whose entire input
+is Δτ — a set of intervals that were all under a day, and the failure would have looked like "the
+time-conditioned prior does not help after all." Fixed by going through `.dt.total_seconds()`, and
+covered by a regression test asserting exact 30-day and 365-day arithmetic.
+
+Synthetic run for reference (400 patients): median gap **13.8 d**, IQR 1.8–84.6 d, max 640 d, with
+26% of intervals under 2 days and 24% over 90 days — the irregular spread that motivates §3.7.
+
+---
+
 ## Sequencing against the critical path
 
 Credentialing is the only true blocker, so order the work to hide it:
@@ -136,5 +185,6 @@ Credentialing is the only true blocker, so order the work to hide it:
    all: implement the CTMC prior and forward–backward, then sweep achievable accuracy as a
    function of local comparator accuracy and calibration. This tells you whether the method can
    work *before* a single image downloads.
-3. **On approval** — pull metadata CSVs and Chest ImaGenome first (small, and they determine the
-   manifest). Start the image fetch in the background; it will run for a while.
+3. **On approval** — pull the metadata CSVs and Chest ImaGenome first (small, and they determine
+   the manifest). Run `run_cohort.py` to produce `manifest.txt`, then start the image fetch in the
+   background against that manifest; it will run for a while.

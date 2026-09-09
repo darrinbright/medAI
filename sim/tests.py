@@ -131,6 +131,91 @@ def test_finding_polarity():
     return f"polarity: {len(cases) + 1} hand-labelled cases, incl. mid-option subject switch"
 
 
+def test_cohort_timestamps():
+    """Date arithmetic must survive pandas datetime-resolution inference.
+
+    Regression test for a silent bug: `.astype("int64")` on a datetime Series is not
+    reliably nanoseconds in pandas 2+, so dividing by a hardcoded 86.4e12 collapsed every
+    date and left only the within-day fraction. Every delta-tau came out under a day, which
+    is the CTMC's entire input, and nothing raised.
+    """
+    import pandas as pd
+
+    from .cohort import _timestamp
+
+    t = _timestamp(pd.Series([20100101, 20100131, 20110101]), pd.Series([0.0, 0.0, 0.0]))
+    assert abs((t[1] - t[0]) - 30.0) < 1e-6, t[1] - t[0]
+    assert abs((t[2] - t[0]) - 365.0) < 1e-6, t[2] - t[0]
+
+    # HHMMSS.SS unpacks in base 60, not base 100
+    same = _timestamp(pd.Series([20100101, 20100101]), pd.Series([0.0, 123000.0]))
+    assert abs((same[1] - same[0]) - (12.5 / 24.0)) < 1e-6, same[1] - same[0]
+    return "cohort: date arithmetic exact over 30d/365d, HHMMSS base-60 unpacking"
+
+
+def test_cohort_build():
+    """Timelines, splits, per-study dedup and null pairs on the synthetic stand-in."""
+    import numpy as np
+    import pandas as pd
+
+    from .cohort import (
+        CohortConfig, build_null_pairs, build_timelines, jpg_path, manifest,
+        one_image_per_study, synthetic_metadata,
+    )
+
+    assert jpg_path(10000032, 50414267, "abc") == "files/p10/p10000032/s50414267/abc.jpg"
+
+    raw = synthetic_metadata(n_subjects=150, seed=3)
+    df = raw[raw["ViewPosition"].isin(("PA", "AP"))].copy()
+    from .cohort import _timestamp
+    df["t_days"] = _timestamp(df["StudyDate"], df["StudyTime"])
+    rng = np.random.default_rng(0)
+    df["split"] = np.where(rng.random(len(df)) < 0.5, "train", "validate")
+    # a split is a property of the patient, not of the image
+    df["split"] = df.groupby("subject_id")["split"].transform("first")
+
+    cfg = CohortConfig(length=5)
+    per_study = one_image_per_study(df, cfg)
+    assert not per_study.duplicated(["subject_id", "study_id"]).any()
+
+    tl = build_timelines(df, cfg)
+    assert len(tl) % 5 == 0 and set(tl["position"]) == {1, 2, 3, 4, 5}
+
+    for _, g in tl.groupby("timeline_id"):
+        g = g.sort_values("position")
+        assert g["subject_id"].nunique() == 1
+        assert g["split"].nunique() == 1                     # no split leakage
+        assert g["study_id"].nunique() == 5                  # distinct studies
+        d = g["days_from_first"].to_numpy()
+        assert d[0] == 0 and np.all(np.diff(d) >= 0)         # ordered in time
+        gaps = g["delta_tau_days"].to_numpy()
+        assert np.isnan(gaps[-1])                            # no gap after the last visit
+        assert np.allclose(gaps[:-1], np.diff(d))            # delta-tau matches the deltas
+
+    # a patient's timelines never straddle splits
+    assert (tl.groupby("subject_id")["split"].nunique() == 1).all()
+
+    # overlapping windows are a superset of non-overlapping ones
+    tl_ov = build_timelines(df, CohortConfig(length=5, overlap=True))
+    assert tl_ov["timeline_id"].nunique() >= tl["timeline_id"].nunique()
+
+    # max_gap filtering actually bites
+    tl_tight = build_timelines(df, CohortConfig(length=5, max_gap_days=30.0))
+    if len(tl_tight):
+        assert tl_tight["delta_tau_days"].max() <= 30.0
+    assert tl_tight["timeline_id"].nunique() <= tl["timeline_id"].nunique()
+
+    pairs = build_null_pairs(df, cfg, max_hours=24.0)
+    if len(pairs):
+        assert (pairs["hours_apart"] >= 0).all() and (pairs["hours_apart"] <= 24.0).all()
+        assert (pairs["study_a"] != pairs["study_b"]).all()
+
+    paths = manifest(tl, pairs)
+    assert len(paths) == len(set(paths)) and all(p.startswith("files/p") for p in paths)
+    return (f"cohort: {tl['timeline_id'].nunique()} timelines, {len(pairs)} null pairs, "
+            f"{len(paths)} manifest paths, no split leakage")
+
+
 def main():
     tests = [
         test_partition_exact,
@@ -141,6 +226,8 @@ def main():
         test_query_labels_exhaustive,
         test_enumeration_matches_forward_backward,
         test_finding_polarity,
+        test_cohort_timestamps,
+        test_cohort_build,
     ]
     print("running correctness checks\n" + "-" * 66)
     for t in tests:
