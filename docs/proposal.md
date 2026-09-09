@@ -136,9 +136,23 @@ both clinically correct and, we expect, a measurable accuracy gain over the naiv
 
 `P_cmp(relation | x_t, x_t′, f)` — a Siamese encoder with difference-aware fusion, conditioned on a
 learned finding embedding via FiLM so one model covers all findings. Backbone: ResNet-50 or ViT-B
-from CXR-pretrained weights at 512×512.
+from CXR-pretrained weights at 512×512. A per-image severity head supplies `P(y_t | s_t)`, and a
+third head emits the gate `ρ` of §3.6.
 
-A per-image severity head supplies `P(y_t | s_t)`.
+Implemented and tested in [`../model/comparator.py`](../model/comparator.py) — **25.4M parameters**
+(23.5M backbone + 1.8M heads), 9/9 checks passing. Three design points that fell out of building it:
+
+- **Fusion carries the signed difference** `f_a − f_b`, because the relations are order-sensitive:
+  reversing a pair turns "new" into "resolved". That yields free supervision — a **swap-consistency
+  loss** ties `p(r | a,b)` to `p(inv(r) | b,a)`, so every labelled pair constrains the model twice.
+  Its inverse table is asserted against `sim.core.relation` rather than hand-typed, and it costs one
+  extra MLP call rather than a second backbone pass.
+- **`ρ` is trained to predict whether the comparison is correct.** Without this the reliability head
+  has no objective at all and is silently untrainable. It also gives the gate the right semantics:
+  the pilot showed gating pays only when the comparator is *confidently wrong*, which is exactly
+  what a correctness-prediction head detects. Same-day pairs train it without relation labels.
+- **FiLM starts near identity, not at identity.** Exact-zero weights give the finding embedding
+  identically zero gradient on the first step.
 
 **Calibration is not optional here.** The method consumes `P(relation)`, not `argmax relation`:
 `{new .51, stable .49}` and `{new .99, stable .01}` must behave differently. See §6.

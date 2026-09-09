@@ -2,3 +2,4 @@
 __pycache__/
 *.pyc
 cohort/
+model/__pycache__/
