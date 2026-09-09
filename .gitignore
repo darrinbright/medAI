@@ -3,3 +3,4 @@ __pycache__/
 *.pyc
 cohort/
 model/__pycache__/
+runs/

@@ -184,6 +184,82 @@ def test_acquisition_features():
     return "comparator: acquisition features encode projection change and log delta-tau"
 
 
+def test_metrics():
+    """ECE and macro-F1 on cases with known answers."""
+    import numpy as np
+
+    from .train import expected_calibration_error, macro_f1
+
+    # perfectly calibrated: 80% confidence, 80% correct
+    conf = np.full(100, 0.8)
+    correct = np.array([1] * 80 + [0] * 20)
+    assert expected_calibration_error(conf, correct) < 0.02
+    # confidently wrong: claims 99%, is right 10% of the time
+    assert expected_calibration_error(np.full(100, 0.99),
+                                      np.array([1] * 10 + [0] * 90)) > 0.8
+
+    true = np.array([0, 1, 2, 3, 4, 5])
+    assert macro_f1(true.copy(), true) == 1.0
+    assert macro_f1(np.zeros(6, dtype=int), true) < 0.4
+    return "training: ECE and macro-F1 correct on known cases"
+
+
+def test_fit_temperature():
+    """Temperature scaling must detect overconfidence and reduce validation NLL."""
+    import torch.nn.functional as F_
+
+    from .train import fit_temperature
+
+    torch.manual_seed(0)
+    true = torch.randint(0, N_RELATIONS, (400,))
+    pred = true.clone()
+    flip = torch.rand(400) < 0.4                      # right only ~60% of the time
+    pred[flip] = (pred[flip] + 1) % N_RELATIONS
+    logits = 6.0 * torch.nn.functional.one_hot(pred, N_RELATIONS).float()  # very confident
+
+    t = fit_temperature(logits, true)
+    assert t > 1.2, f"overconfident logits should need T > 1, got {t:.3f}"
+    assert float(F_.cross_entropy(logits / t, true)) < float(F_.cross_entropy(logits, true))
+    return f"training: temperature scaling detects overconfidence (T={t:.2f}) and cuts NLL"
+
+
+def test_training_smoke():
+    """The loop must actually OPTIMISE, not merely run.
+
+    The synthetic task is genuinely learnable - severity is encoded as blob radius and the
+    relation follows from the two severities - so a working loop has to beat the majority
+    class by a wide margin. Random-noise images would let a broken loop pass.
+    """
+    import tempfile
+
+    from .comparator import Comparator, ComparatorConfig
+    from .data import DataConfig, make_loader, synthetic_pairs
+    from .train import TrainConfig, evaluate, train
+
+    d = tempfile.mkdtemp()
+    df = synthetic_pairs(d, n_pairs=200, size=64, n_findings=4, seed=1)
+    dc = DataConfig(image_root=d, size=64, batch_size=8, workers=0)
+    tr = make_loader(df[df.split == "train"], dc, True, True, seed=1)
+    va = make_loader(df[df.split == "validate"], dc, True, False, seed=2)
+    majority = float(df[df.split == "validate"]["relation"].value_counts(normalize=True).max())
+
+    m = Comparator(ComparatorConfig(backbone="tiny", n_findings=4, proj_dim=64, hidden=64))
+    dev = torch.device("cpu")
+    before = evaluate(m, va, dev)["accuracy"]
+    summary = train(m, tr, va, TrainConfig(epochs=15, lr=3e-4, accum_steps=1, amp=False,
+                                           patience=15, out_dir=d + "/run"),
+                    device=dev, log=lambda *_: None)
+    after = summary["best_val_accuracy"]
+    assert after > before + 0.2, f"loop did not learn: {before:.3f} -> {after:.3f}"
+    assert after > majority + 0.15, f"did not beat majority {majority:.3f}: {after:.3f}"
+
+    ck = torch.load(d + "/run/best.pt", weights_only=False)
+    for k in ("model", "comparator_config", "train_config", "temperature", "val_accuracy"):
+        assert k in ck, f"checkpoint missing {k}"
+    return (f"training: loop optimises ({before:.2f} -> {after:.2f} vs majority "
+            f"{majority:.2f}); checkpoint ships weights + temperature")
+
+
 def main():
     tests = [
         test_relation_inverse_matches_algebra,
@@ -195,6 +271,9 @@ def main():
         test_gradients_flow,
         test_reliability_semantics,
         test_acquisition_features,
+        test_metrics,
+        test_fit_temperature,
+        test_training_smoke,
     ]
     print("comparator checks\n" + "-" * 70)
     for t in tests:

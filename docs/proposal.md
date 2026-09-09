@@ -154,6 +154,20 @@ Implemented and tested in [`../model/comparator.py`](../model/comparator.py) —
 - **FiLM starts near identity, not at identity.** Exact-zero weights give the finding embedding
   identically zero gradient on the first step.
 
+Training is implemented in [`../model/train.py`](../model/train.py) with a CLI in
+`run_train.py`. Two supervision streams run together — labelled relation pairs and unlabelled
+same-day null pairs — so the gate sees acquisition variation throughout rather than in a separate
+phase. **Early stopping tracks six-way relation accuracy, not loss**, since that is the quantity
+§5 turns on and the one the end-to-end projection is parameterised by. **Temperature is fitted on
+validation and saved with the weights**, because the inference layer consumes `p(relation)` rather
+than argmax, so an uncalibrated checkpoint is half a deliverable. Class weighting is available but
+**off by default**: the CTMC prior already applies base rates downstream, so a balanced comparator
+would double-count the correction and damage calibration.
+
+The loop is smoke-tested on a synthetic task where severity is encoded as blob radius and the
+relation follows from the two severities — genuinely learnable, so a broken loop cannot pass.
+Observed: 0.15 → 0.63 against a 0.27 majority baseline.
+
 **Calibration is not optional here.** The method consumes `P(relation)`, not `argmax relation`:
 `{new .51, stable .49}` and `{new .99, stable .01}` must behave differently. See §6.
 
