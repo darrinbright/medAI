@@ -253,6 +253,14 @@ Each question type is a query on one posterior:
 - **ICR** — posterior over the relation on `(i, j)`
 - **GTS** — likelihood of each candidate trajectory shape
 
+**Score options by Bayes factor, never by posterior mass.** An option's predicate covers a set of
+trajectories, and set sizes differ wildly — "there is no second appearance" covers most of the
+space. Ranking by raw posterior mass therefore selects the largest predicate almost regardless of
+evidence, pinning those question types at `P(gold = E)`. Dividing by the predicate's prior mass is
+the correct decoding when exactly one option is true. In the end-to-end dry run this is worth
+**41 accuracy points** (0.363 → 0.813 at comparator accuracy 0.60), and it generalises to any
+method scoring multiple-choice options against a distribution over structured objects.
+
 MCQ options are mapped to trajectory predicates offline by a small LLM parser. **This parser is a
 dependency and an attack surface** ("you used an LLM to solve part of the task"); we will report
 parser accuracy against manual annotation on a sample and treat parser error as part of the error
@@ -434,9 +442,14 @@ since MI-CXR labels are report-derived.
 
 ### 8.5 Target, labelled as hypothesis
 
-**29.3% → 55–65%** is a *hypothesis*, not a projection from measured data. It rests on unmeasured
-six-way comparator accuracy (§5). The claim is not asserted anywhere in the paper until the pilot
-supports it.
+**29.3% → 55–65%** was a hypothesis. The end-to-end dry run on the real 5,311 questions
+([`pilot-findings.md`](pilot-findings.md)) now projects **57–65%** at comparator accuracy 0.60 and
+**49–54%** even at 0.35, assuming chance on the 26% of the benchmark that needs an LLM parser.
+Arriving at the same range independently, from the real questions, is meaningful corroboration.
+
+It remains a simulation. It does not include the correlated-image-nuisance effect of §3.9 (worth up
+to −0.21), the comparator error structure is ours, and six-way comparator accuracy is still the one
+unmeasured quantity. The claim stays hedged until the October pilot.
 
 ---
 

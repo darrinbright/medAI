@@ -297,6 +297,100 @@ defend, and the calibration curve is a figure in its own right.
 
 ---
 
+## End-to-end dry run on the real benchmark
+
+The studies above used invented query definitions. This one wires the real option parsers to the
+real inference and runs the whole pipeline on the **actual 5,311 MI-CXR questions**, substituting a
+simulated comparator of known accuracy for the one that needs images.
+
+Per item: parse all five options into predicates → sample a ground-truth trajectory from the
+**gold** option's predicate → simulate reads and comparisons from it → infer → score the options →
+check the argmax against the gold letter. 3,931 items (74.0% of the benchmark) parse fully.
+
+Reproduce with `python run_endtoend.py micxr_test.jsonl 2`.
+
+### It caught a decoding bug worth 41 points
+
+The first run put `multiple_emergence_2` at **exactly 0.200**, barely moving as comparator accuracy
+rose from 0.35 to 0.85. That is `P(gold = E)`.
+
+The cause: options were scored by **raw posterior mass** inside their predicate. "There is no
+second appearance" covers most of the trajectory space, so it wins on **size alone**, regardless of
+evidence. The fix is to divide by the predicate's **prior** mass — the Bayes factor against the
+prior — which is the correct decoding when exactly one option is true and the options are a priori
+equally likely.
+
+| Decoding | Sampling | Overall (cmp 0.60) |
+|---|---|---|
+| mass | uniform | 0.305 |
+| mass | prior | 0.356 |
+| **ratio** | uniform | **0.716** |
+| **ratio** | prior | **0.816** |
+
+**This generalises beyond MI-CXR.** Any method that scores multiple-choice options against a
+distribution over structured objects has this failure mode, and "none of the above" is exactly the
+option whose predicate is largest. Worth a paragraph in the paper, not a footnote.
+
+### Results, corrected decoding
+
+Two sampling schemes bracket the truth. `prior` follows the faithful generative story — nature
+produces trajectories per disease dynamics and the gold option describes what nature produced.
+`uniform` samples the predicate's satisfying set evenly, generating implausible timelines the CTMC
+is right to disbelieve, so it is adversarial to the prior.
+
+| Comparator accuracy | mass / prior (buggy) | ratio / uniform | ratio / prior |
+|---|---|---|---|
+| 0.35 | 0.291 | 0.590 | 0.660 |
+| 0.50 | 0.331 | 0.662 | 0.760 |
+| **0.60** | 0.363 | **0.706** | **0.813** |
+| 0.70 | 0.388 | 0.760 | 0.855 |
+| 0.85 | 0.452 | 0.803 | 0.907 |
+
+Per question type at comparator 0.60 (ratio / prior): every type now sits between 0.69 and 0.90,
+with none pinned at chance.
+
+| qtype | Acc | | qtype | Acc |
+|---|---|---|---|---|
+| single_entity_interval_summary | 0.880 | | resolution_to_emergence | 0.841 |
+| multiple_emergence_2 | 0.898 | | single_emergence | 0.794 |
+| emergence_to_resolution | 0.854 | | multiple_resolution_1 | 0.694 |
+| multiple_resolution_2 | 0.846 | | single_resolution | 0.699 |
+| multiple_emergence_1 | 0.784 | | | |
+
+### Projecting to the full benchmark
+
+Assuming **chance (20%) on the unparsed 26%** — multi-entity GTS and ICR, which need an LLM parser:
+
+| Comparator accuracy | Projected full-benchmark |
+|---|---|
+| 0.35 (pessimistic) | **49–54%** |
+| 0.60 (plausible) | **57–65%** |
+| 0.85 (optimistic) | **62–72%** |
+
+Against a best published model of **41.8%** and a 14-VLM mean of **29.3%**.
+
+The 55–65% target was set before any of this existed. Reaching essentially the same range from the
+real questions, with a corrected decoder, is meaningful corroboration — but it is still a
+simulation, and the caveats below are load-bearing.
+
+### What would move these numbers down
+
+1. **No conditional-independence violation is simulated here.** The §3.9 study showed correlated
+   image nuisance costs up to 0.21. Layering it would reduce these figures materially.
+2. **Prior-weighted sampling draws truth from the same prior used in inference.** The misspecification
+   study says the CTMC still helps when that is false, but this run does not re-test it — hence the
+   uniform column as the adversarial bound.
+3. **The comparator's error structure is ours.** Real VLM errors will correlate with question
+   difficulty in ways structured confusions do not capture.
+4. **Chance on the unparsed 26% may be pessimistic or optimistic** depending on how well an LLM
+   parser does on multi-entity GTS.
+
+The honest summary: **the architecture clears the published state of the art with room to spare
+under a wide range of comparator quality, and the remaining risk is concentrated in the comparator
+and in correlated image nuisance rather than in the inference.**
+
+---
+
 ## What this changes in the plan
 
 | Finding | Action |
@@ -308,6 +402,8 @@ defend, and the calibration curve is a figure in its own right.
 | Comparator accuracy requirement is low | Six-way accuracy is a smaller risk than believed; October pilot still needed for the real figure |
 | Gate worth 0.000 in the base case | **Do not claim it until the confidently-wrong condition is verified on real data** |
 | A learned gate needs AUC ≈ 0.95 to be worth reporting | Achievable in part: `ViewPosition` is free in the metadata, so projection mismatch is read rather than predicted |
+| End-to-end on real questions clears SOTA at every comparator accuracy tested | Strongest corroboration so far, but simulated; the comparator and §3.9 carry the residual risk |
+| MCQ decoding must use Bayes factors, not posterior mass | Worth 41 points, and a general point about scoring options over structured objects. Name it in the paper |
 | Conditional independence violation confirmed | Report posterior calibration as standard. Apply likelihood tempering with `w` tuned on held-out data; expect roughly `w ≈ 0.55` |
 | Tempering costs no accuracy | §3.9 becomes a measured-and-mitigated limitation rather than an admitted flaw |
 | Calibration costs ~5 points | Worth a calibration pass, not worth a whole thread; downgrade proposal §6 |

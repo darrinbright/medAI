@@ -54,6 +54,7 @@ perception failure, and it is what this project attacks.
 
 MI-CXR overall accuracy **29.3% → 55–65%**, against a best published baseline of 41.8%.
 
-**This is a hypothesis, not a projection.** It rests on six-way comparator accuracy, which nobody
-has published — CoCa-CXR's 65.0% is a *three-class* result. The September synthetic study and the
-October six-way pilot test it before the claim is made anywhere.
+The end-to-end dry run on the **real 5,311 questions** now projects **57–65%** at comparator
+accuracy 0.60, and **49–54%** even at 0.35 — assuming chance on the 26% needing an LLM parser.
+Still a simulation: it excludes the §3.9 correlated-nuisance effect, and six-way comparator
+accuracy remains the one unmeasured quantity, due in the October pilot.
